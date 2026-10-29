@@ -53,13 +53,13 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	urlWithoutCredentials, credentialsSet := redactedProxyURL(snapshot.ProxyURL)
 	out := struct {
 		Settings
-		ProwlarrApiKeySet bool `json:"prowlarrApiKeySet"`
-		JackettApiKeySet bool `json:"jackettApiKeySet"`
+		ProwlarrApiKeySet   bool `json:"prowlarrApiKeySet"`
+		JackettApiKeySet    bool `json:"jackettApiKeySet"`
 		ProxyCredentialsSet bool `json:"proxyCredentialsSet"`
 	}{
-		Settings: snapshot,
-		ProwlarrApiKeySet: snapshot.ProwlarrApiKey != "",
-		JackettApiKeySet: snapshot.JackettApiKey != "",
+		Settings:            snapshot,
+		ProwlarrApiKeySet:   snapshot.ProwlarrApiKey != "",
+		JackettApiKeySet:    snapshot.JackettApiKey != "",
 		ProxyCredentialsSet: credentialsSet,
 	}
 	out.ProwlarrApiKey = ""
