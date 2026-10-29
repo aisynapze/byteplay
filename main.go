@@ -1877,6 +1877,10 @@ func convertTorrentToMagnetHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Bound the entire multipart request, not merely memory buffering.
 	const maxUploadSize = 10 << 20
+	if r.ContentLength > maxUploadSize {
+		respondWithJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "Torrent metadata request exceeds 10 MB"})
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		var maxErr *http.MaxBytesError
