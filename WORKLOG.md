@@ -81,3 +81,11 @@
 - Race-enabled repeat of M3 partial streaming test PASS; transport throttles are configured local client limits, not field-network benchmarks.
 - FFprobe route selection and FFmpeg MPEG-TS HLS: local H264/AAC copy = 6 finalized segments, local H264/AC3 audio transcode = 2 finalized segments, local MPEG4/AAC x264 ultrafast = 5 finalized segments. Playlists contained ENDLIST, segments probe as H264/AAC, and zero temporary outputs remained. Both normal and race-enabled CI executions PASS.
 - **Not demonstrated:** live torrent-to-FFmpeg/HLS generation before 100% of selected bytes, generation-qualified HLS serving APIs, browser playback, peak memory/cache accounting, PTS-aligned seeks, or mobile UI. M3 and M4 tests are green; release gate is NOT green.
+
+## 2026-10-29 — M5 async playback manager initial implementation
+
+- Added POST /api/v1/hls/sessions async create, GET /{id}/status, GET/HEAD generation=1 immutable playlists and numbered segments and idempotent DELETE.
+- Playback session owns a retained torrent session, context-cancellable FFprobe/FFmpeg, 2 concurrent FFmpeg slots and 1 video transcode slot; caller no longer blocks on metadata or probe.
+- Playback ID is cryptographically random 128-bit; output dir 0700. Finalized manifest must contain >=2 referenced non-empty TS files before ready. Strict segment-name check rejects traversal/tmp/unlisted paths. Status and creation responses use typed error/state contracts; no user auth tokens in URLs.
+- Added bounded HTTP graceful shutdown cleanup and separate in-memory quota caps (10GiB HLS root, 2GiB playback). Torrent cache aggregate disk quota not yet enforced; generation=1 only and no seek/control endpoints.
+- Unit/real seeded end-to-end CI evidence pending; do not mark M5 complete before these pass.

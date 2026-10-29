@@ -5,15 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +21,30 @@ const (
 	maxHLSCacheBytes int64 = 10 << 30
 	maxHLSPlaybackBytes int64 = 2 << 30
 )
-var hlsSegmentName = regexp.MustCompile(`^segment-[0-9]{6}.ts$`)
+var hlsSegmentName = regexp.MustCompile(`^segment-[0-9]{6}\.tspackage main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	maxHLSPlaybacks = 8
+	maxHLSCacheBytes int64 = 10 << 30
+	maxHLSPlaybackBytes int64 = 2 << 30
+)
+var hlsSegmentName = )
 
 type hlsError struct {
 	Code string `json:"code"`

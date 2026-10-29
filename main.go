@@ -499,6 +499,7 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, logBuffer))
 
 	checkFFmpeg()
+	activeHLS.ffmpeg=ffmpegPath
 
 	// Set up endpoint handlers
 	http.HandleFunc("/api/v1/torrent/add", addTorrentHandler)
@@ -517,6 +518,7 @@ func main() {
 	http.HandleFunc("/api/v1/sessions", sessionsHandler)
 	http.HandleFunc("/api/v1/cache/purge", purgeCacheHandler)
 	http.HandleFunc("/api/v1/capabilities", capabilitiesHandler)
+	http.HandleFunc("/api/v1/hls/", activeHLS.handler)
 
 	// Set up client file serving
 	// no-cache: revalidate on every load so updates aren't stuck behind stale assets
@@ -561,6 +563,7 @@ func main() {
 	if err := serveWithShutdown(ctx, server, listener, 15*time.Second); err != nil {
 		log.Printf("HTTP shutdown: %v", err)
 	}
+	activeHLS.stopAll(10 * time.Second)
 	// Stop admitting work, then close all sessions that have drained. If any
 	// reader survived forced connection shutdown, retain its cache rather than
 	// deleting files under it.
