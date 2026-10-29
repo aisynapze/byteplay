@@ -2,6 +2,16 @@ name: BytePlay quality checks
 on:
   push:
     branches: ["implement/byteplay-v0.1.1"]
+    paths:
+      - "*.go"
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "client/**"
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
+      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 permissions:
