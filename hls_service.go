@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,12 @@ type hlsCreateRequest struct {
 type hlsPlayback struct {
 	mu            sync.Mutex
 	id            string
+	generation    int
+	startSeconds  float64
+	probe         *ProbeResult
+	paused        bool
+	pauseTimer    *time.Timer
+	lastDemand    time.Time
 	sessionID     string
 	fileIndex     int
 	selectedAudio *int
@@ -77,8 +84,10 @@ type hlsPlayback struct {
 	peers         int
 }
 type hlsManager struct {
-	mu           sync.Mutex
+	mu           sync.RWMutex
 	root         string
+	pauseGrace   time.Duration
+	idleTimeout  time.Duration
 	jobs         map[string]*hlsPlayback
 	processSlots chan struct{}
 	videoSlots   chan struct{}
@@ -87,6 +96,7 @@ type hlsManager struct {
 
 func newHLSManager(root, ffmpeg string) *hlsManager {
 	return &hlsManager{root: root, ffmpeg: ffmpeg, jobs: make(map[string]*hlsPlayback),
+		pauseGrace: 90*time.Second, idleTimeout: 2*time.Minute,
 		processSlots: make(chan struct{}, 2), videoSlots: make(chan struct{}, 1)}
 }
 
@@ -105,9 +115,11 @@ func newPlaybackID() (string, error) {
 func (j *hlsPlayback) snapshot() hlsStatus {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	s := hlsStatus{PlaybackID: j.id, State: j.state, Mode: j.mode, Generation: 1,
+	generation := j.generation
+	if generation == 0 { generation = 1 }
+	s := hlsStatus{PlaybackID: j.id, State: j.state, Mode: j.mode, Generation: generation,
 		PlaylistReady: j.playlistReady, StatusURL: "/api/v1/hls/" + j.id + "/status",
-		DurationSeconds: j.duration, StartSeconds: 0, SegmentsReady: j.segments,
+		DurationSeconds: j.duration, StartSeconds: j.startSeconds, SegmentsReady: j.segments,
 		TorrentBytesCompleted: j.progress.TorrentBytesCompleted, TorrentBytesTotal: j.progress.TorrentBytesTotal,
 		SelectedFileBytesTotal: j.progress.FileBytesTotal,
 		DownloadBytesPerSecond: nil, Peers: j.peers, Error: j.err}
@@ -116,7 +128,7 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 		s.SelectedFileBytesCompleted = &n
 	}
 	if j.playlistReady {
-		url := "/api/v1/hls/" + j.id + "/g/1/index.m3u8"
+		url := "/api/v1/hls/" + j.id + "/g/" + strconv.Itoa(generation) + "/index.m3u8"
 		s.PlaylistURL = &url
 	}
 	return s
@@ -139,8 +151,8 @@ func (j *hlsPlayback) observe() {
 	j.mu.Unlock()
 }
 func (m *hlsManager) get(id string) *hlsPlayback {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.jobs[id]
 }
 func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +240,7 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 	job := &hlsPlayback{
 		id: id, sessionID: req.SessionID, fileIndex: *req.FileIndex, selectedAudio: req.AudioStream,
 		dir: dir, session: session, source: source, ctx: ctx, cancel: cancel, stopOwner: stopOwner,
-		done: make(chan struct{}), state: "queued", progress: source.Progress(),
+		done: make(chan struct{}), state: "queued", generation: 1, lastDemand: time.Now(), progress: source.Progress(),
 	}
 	m.jobs[id] = job
 	m.mu.Unlock()
@@ -272,6 +284,7 @@ func (m *hlsManager) run(job *hlsPlayback) {
 		Input:          loopbackStreamURL(job.sessionID, job.fileIndex),
 		Playlist:       filepath.Join(job.dir, "index.m3u8"),
 		SegmentPattern: filepath.Join(job.dir, "segment-%06d.ts"),
+		StartSeconds: job.startSeconds,
 	}
 	args, err := BuildHLSFFmpegArgs(route, opts)
 	if err != nil {
@@ -290,6 +303,7 @@ func (m *hlsManager) run(job *hlsPlayback) {
 		}
 	}
 	job.mu.Lock()
+	job.probe = probe
 	mode := string(route.Mode)
 	job.mode = &mode
 	if probe.Duration > 0 {
@@ -398,7 +412,17 @@ func inspectHLSManifest(dir string) (int, bool, map[string]bool) {
 	return len(names), len(names) >= 2, names
 }
 func (m *hlsManager) serveMedia(w http.ResponseWriter, r *http.Request, job *hlsPlayback, generation, filename string) {
-	if generation != "1" {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.jobs[job.id] != job {
+		writeHLSError(w, http.StatusGone, "generation_expired", "Playback generation is no longer available")
+		return
+	}
+	job.mu.Lock()
+	currentGeneration := job.generation
+	if currentGeneration == 0 {currentGeneration = 1}
+	job.mu.Unlock()
+	if generation != strconv.Itoa(currentGeneration) {
 		writeHLSError(w, http.StatusGone, "generation_expired", "Playback generation is no longer available")
 		return
 	}
@@ -426,6 +450,9 @@ func (m *hlsManager) serveMedia(w http.ResponseWriter, r *http.Request, job *hls
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		w.Header().Set("Cache-Control", "no-store")
 	} else {
+		job.mu.Lock()
+		job.lastDemand = time.Now()
+		job.mu.Unlock()
 		w.Header().Set("Content-Type", "video/mp2t")
 		w.Header().Set("Cache-Control", "private, max-age=120")
 	}
@@ -440,9 +467,12 @@ func (m *hlsManager) delete(w http.ResponseWriter, r *http.Request, id string) {
 	m.mu.Unlock()
 	if job != nil {
 		job.cancel()
+		job.mu.Lock()
+		if job.pauseTimer!=nil {job.pauseTimer.Stop()}
+		job.mu.Unlock()
 		go func() {
 			<-job.done
-			_ = os.RemoveAll(job.dir)
+			_ = os.RemoveAll(filepath.Join(m.root, job.id))
 		}()
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -456,6 +486,9 @@ func (m *hlsManager) stopAll(timeout time.Duration) {
 	}
 	m.mu.Unlock()
 	for _, j := range jobs {
+		j.mu.Lock()
+		if j.pauseTimer!=nil {j.pauseTimer.Stop()}
+		j.mu.Unlock()
 		j.cancel()
 	}
 	deadline := time.NewTimer(timeout)
@@ -463,7 +496,7 @@ func (m *hlsManager) stopAll(timeout time.Duration) {
 	for _, j := range jobs {
 		select {
 		case <-j.done:
-			_ = os.RemoveAll(j.dir)
+			_ = os.RemoveAll(filepath.Join(m.root, j.id))
 		case <-deadline.C:
 			return
 		}
@@ -493,6 +526,14 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 	if job == nil {
 		writeHLSError(w, http.StatusNotFound, "not_found", "HLS resource not found")
 		return
+	}
+	if len(parts) == 2 && parts[1] == "seek" {
+		if r.Method!=http.MethodPost {w.Header().Set("Allow","POST");writeHLSError(w,405,"method_not_allowed","Use POST");return}
+		m.seek(w,r,parts[0]);return
+	}
+	if len(parts) == 2 && parts[1] == "control" {
+		if r.Method!=http.MethodPost {w.Header().Set("Allow","POST");writeHLSError(w,405,"method_not_allowed","Use POST");return}
+		m.control(w,r,parts[0]);return
 	}
 	if len(parts) == 2 && parts[1] == "status" {
 		if r.Method != http.MethodGet {
