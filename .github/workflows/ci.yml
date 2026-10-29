@@ -58,8 +58,14 @@ jobs:
       - name: Go formatting gate
         run: |
           test -z "$(gofmt -l security.go main_test.go main.go)"
+      - name: Install FFmpeg and FFprobe
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: FFmpeg availability
         run: |
-          ffmpeg -hide_banner -encoders | grep libx264
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -hide_banner -encoders | grep -E '[[:space:]]libx264[[:space:]]'
           ffmpeg -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]'
           ffprobe -version
