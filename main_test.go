@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -108,5 +109,70 @@ func TestTorrentUploadRejectsOversizedRequest(t *testing.T) {
 	convertTorrentToMagnetHandler(w, r)
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("got status %d, want 413; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestBasicAuthAndLoopbackMediaToken(t *testing.T) {
+	t.Setenv("BITPLAY_AUTH_USERNAME", "alice")
+	t.Setenv("BITPLAY_AUTH_PASSWORD", "test-pass")
+	protected := basicAuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	anonymous := httptest.NewRequest(http.MethodGet, "/api/v1/torrent/test", nil)
+	w := httptest.NewRecorder()
+	protected.ServeHTTP(w, anonymous)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status=%d", w.Code)
+	}
+	authenticated := httptest.NewRequest(http.MethodGet, "/api/v1/torrent/test", nil)
+	authenticated.SetBasicAuth("alice", "test-pass")
+	w = httptest.NewRecorder()
+	protected.ServeHTTP(w, authenticated)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("Basic Auth status=%d", w.Code)
+	}
+	remote := httptest.NewRequest(http.MethodGet, "/api/v1/torrent/test", nil)
+	remote.RemoteAddr = "198.51.100.4:12345"
+	remote.Header.Set("X-BytePlay-Internal", loopbackInternalToken)
+	w = httptest.NewRecorder()
+	protected.ServeHTTP(w, remote)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("remote internal-token bypass: status=%d", w.Code)
+	}
+	loopback := httptest.NewRequest(http.MethodGet, "/api/v1/torrent/test", nil)
+	loopback.RemoteAddr = "127.0.0.1:12222"
+	loopback.Header.Set("X-BytePlay-Internal", loopbackInternalToken)
+	w = httptest.NewRecorder()
+	protected.ServeHTTP(w, loopback)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("loopback internal-token status=%d", w.Code)
+	}
+}
+
+func TestIndexerMagnetRedirectAndCrossOriginDenial(t *testing.T) {
+	magnet := "magnet:?xt=urn:btih:" + strings.Repeat("a", 40)
+	authorized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, magnet, http.StatusFound)
+	}))
+	defer authorized.Close()
+	s := Settings{EnableProwlarr: true, ProwlarrHost: authorized.URL}
+	got, err := fetchIndexerMagnet(context.Background(), authorized.URL+"/get", s, authorized.Client())
+	if err != nil || got != magnet {
+		t.Fatalf("allowed redirect: got %q, err=%v", got, err)
+	}
+	called := false
+	offOrigin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer offOrigin.Close()
+	denied := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, offOrigin.URL+"/private", http.StatusFound)
+	}))
+	defer denied.Close()
+	s.ProwlarrHost = denied.URL
+	_, err = fetchIndexerMagnet(context.Background(), denied.URL+"/get", s, denied.Client())
+	if err == nil || called {
+		t.Fatalf("cross-origin redirect allowed: err=%v, called=%v", err, called)
 	}
 }
