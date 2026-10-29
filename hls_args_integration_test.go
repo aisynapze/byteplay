@@ -31,7 +31,7 @@ func TestHLSFFmpegRouteFixtureMatrix(t *testing.T) {
 
 	for _, tc := range []struct {
 		filename string
-		mode HLSRouteMode
+		mode     HLSRouteMode
 	}{
 		{"clip.mp4", HLSRouteCopy},
 		{"audio-ac3.mkv", HLSRouteAudioTranscode},
@@ -56,8 +56,8 @@ func TestHLSFFmpegRouteFixtureMatrix(t *testing.T) {
 			output := t.TempDir()
 			playlist := filepath.Join(output, "index.m3u8")
 			args, err := BuildHLSFFmpegArgs(route, HLSFFmpegOptions{
-				Input: input,
-				Playlist: playlist,
+				Input:          input,
+				Playlist:       playlist,
 				SegmentPattern: filepath.Join(output, "segment-%06d.ts"),
 			})
 			if err != nil {

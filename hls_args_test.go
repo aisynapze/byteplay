@@ -9,15 +9,15 @@ import (
 
 func TestBuildHLSFFmpegArgsRouteProfiles(t *testing.T) {
 	opts := HLSFFmpegOptions{
-		Input: "http://127.0.0.1:3347/api/v1/torrent/fixture/stream/0",
-		Playlist: "/tmp/byteplay-owned/index.m3u8",
+		Input:          "http://127.0.0.1:3347/api/v1/torrent/fixture/stream/0",
+		Playlist:       "/tmp/byteplay-owned/index.m3u8",
 		SegmentPattern: "/tmp/byteplay-owned/segment-%06d.ts",
 	}
 	cases := []struct {
-		name string
-		route HLSRoute
-		video []string
-		audio []string
+		name   string
+		route  HLSRoute
+		video  []string
+		audio  []string
 		absent []string
 	}{
 		{"copy", HLSRoute{Mode: HLSRouteCopy, VideoIndex: 0, AudioIndex: 1, VideoEncoder: "copy", AudioEncoder: "copy"},
