@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
