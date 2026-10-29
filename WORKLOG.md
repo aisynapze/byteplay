@@ -9,3 +9,5 @@
 - Runtime Go 1.26.6, seeded torrent, FFmpeg integration and browser checks have NOT been executed.
 - M1 remains incomplete; P0 proxy peer/tracker egress and complete security/error tests are outstanding.
 - Next action: run CI on the branch, fix observed build/test regressions, complete M1, then M2–M8.
+
+- Latest observed CI run: https://github.com/aisynapze/byteplay/actions/runs/40951000330 — QUEUED, not passed. No runner binding verified. Tests and formatting still require execution.
