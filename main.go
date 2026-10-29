@@ -785,9 +785,13 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/octet-stream")
 		}
 
-		// Stream the file
-		reader := file.NewReader()
-		reader.SetContext(r.Context())
+		// Read only the selected file's needed pieces with 16 MiB readahead.
+		source, err := newMediaSource(session.Torrent, fileIndex)
+		if err != nil {
+			http.Error(w, "Invalid file index", http.StatusBadRequest)
+			return
+		}
+		reader := source.Open(r.Context())
 		// ServeContent will close the reader when done but we need to
 		// ensure it gets closed if there's a panic or other error
 		defer func() {
@@ -796,6 +800,11 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 		http.ServeContent(w, r, fileName, time.Time{}, reader)
+		progress := reader.Progress()
+		if progress.FirstByteLatencyMillis != nil {
+			log.Printf("Media source file_index=%d first_byte_ms=%d bytes_served=%d selected_completed=%d torrent_completed=%d",
+				fileIndex, *progress.FirstByteLatencyMillis, progress.BytesServed, progress.FileBytesCompleted, progress.TorrentBytesCompleted)
+		}
 		return
 	}
 
@@ -805,7 +814,8 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 		files = append(files, map[string]interface{}{
 			"index": i,
 			"name":  file.DisplayPath(),
-			"size":  file.Length(),
+			"size":           file.Length(),
+			"bytesCompleted": file.BytesCompleted(),
 		})
 	}
 
