@@ -234,7 +234,7 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 	m.mu.Unlock()
 	release = false
 	go m.run(job)
-	w.Header().Set("Cache-Control","no-store")
+	w.Header().Set("Cache-Control", "no-store")
 	respondWithJSON(w, http.StatusCreated, job.snapshot())
 }
 func (m *hlsManager) run(job *hlsPlayback) {
@@ -500,7 +500,7 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 			writeHLSError(w, 405, "method_not_allowed", "Use GET")
 			return
 		}
-		w.Header().Set("Cache-Control","no-store")
+		w.Header().Set("Cache-Control", "no-store")
 		respondWithJSON(w, 200, job.snapshot())
 		return
 	}
