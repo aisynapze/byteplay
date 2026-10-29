@@ -323,8 +323,8 @@ func (errorTransport) RoundTrip(*http.Request) (*http.Response, error) {
 // Create a proxy dialer for SOCKS5
 func createProxyDialer(proxyURL string) (proxy.Dialer, error) {
 	proxyURLParsed, err := url.Parse(proxyURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse proxy URL: %v", err)
+	if err != nil || proxyURLParsed.Scheme != "socks5" || proxyURLParsed.Host == "" {
+		return nil, errors.New("invalid SOCKS5 proxy URL")
 	}
 
 	// Extract auth information
@@ -387,7 +387,7 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 		proxyDialer, err := createProxyDialer(proxyURL)
 		if err != nil {
 			releasePort(port)
-			return nil, port, fmt.Errorf("could not create proxy dialer: %v", err)
+			return nil, port, errors.New("invalid SOCKS5 proxy configuration")
 		}
 
 		config.HTTPProxy = func(*http.Request) (*url.URL, error) {
@@ -452,10 +452,10 @@ func init() {
 			JackettApiKey:  "",
 		}
 		// Create the config directory if it doesn't exist
-		if err := os.MkdirAll("config", 0755); err != nil {
+		if err := os.MkdirAll("config", 0700); err != nil {
 			log.Fatalf("Failed to create config directory: %v", err)
 		}
-		settingsFile, err := os.Create("config/settings.json")
+		settingsFile, err := os.OpenFile("config/settings.json", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err != nil {
 			log.Fatalf("Failed to create settings.json: %v", err)
 		}
