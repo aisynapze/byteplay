@@ -23,3 +23,10 @@
 - Unit test T-003 failed because oversized request content length was not checked before invalid multipart parsing; added early 413 ContentLength check while retaining MaxBytesReader for streaming/unknown-length bodies.
 - No dependency versions changed; no `go mod tidy` or removal of transitive dependencies without import graph evidence.
 - New CI run for latest branch must still complete before full gate status can be recorded.
+
+## 2026-10-29 — GitHub-hosted CI repair verified
+
+- Run #40953448643: all Go/frontend gates passed, FFmpeg availability failed because the GitHub-hosted Ubuntu runner had no ffmpeg binary (`ffmpeg: command not found`).
+- Installed ffmpeg/ffprobe using apt in `.github/workflows/ci.yml` before the codec availability checks. Commit: `116132bbae1626a7fe2358736d20349a31a7b31b`.
+- Run #40955652051 on that commit: **success** (https://github.com/aisynapze/byteplay/actions/runs/40955652051). Go build/vet/test/race, module verification, gofmt, JS syntax, CSS, ffmpeg install and libx264/AAC/ffprobe checks all passed.
+- This is a green CI quality workflow, not full M0-M8 media, security, HLS, or UI release certification.
