@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -152,4 +153,20 @@ func ChooseHLSRoute(p MediaProfile, limits HLSLimits) (HLSRoute, error) {
 		return HLSRoute{}, ErrMediaProbePending
 	}
 	return route, nil
+}
+
+func parseMediaFrameRate(raw string) float64 {
+	parts := strings.SplitN(raw, "/", 2)
+	numerator, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil || numerator <= 0 {
+		return 0
+	}
+	if len(parts) == 1 {
+		return numerator
+	}
+	denominator, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil || denominator <= 0 {
+		return 0
+	}
+	return numerator / denominator
 }
