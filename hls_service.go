@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -151,7 +152,23 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&req) != nil || decoder.Decode(new(interface{})) != io.EOF || req.SessionID == "" || req.FileIndex == nil {
+	err := decoder.Decode(&req)
+	if err == nil {
+		err = decoder.Decode(new(interface{}))
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+	}
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeHLSError(w, http.StatusRequestEntityTooLarge, "request_too_large", "HLS creation request exceeds 8 KiB")
+			return
+		}
+		writeHLSError(w, http.StatusBadRequest, "invalid_request", "Malformed HLS creation request")
+		return
+	}
+	if req.SessionID == "" || req.FileIndex == nil {
 		writeHLSError(w, http.StatusBadRequest, "invalid_request", "Expected sessionId and fileIndex")
 		return
 	}
@@ -217,6 +234,7 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 	m.mu.Unlock()
 	release = false
 	go m.run(job)
+	w.Header().Set("Cache-Control","no-store")
 	respondWithJSON(w, http.StatusCreated, job.snapshot())
 }
 func (m *hlsManager) run(job *hlsPlayback) {
@@ -385,7 +403,7 @@ func (m *hlsManager) serveMedia(w http.ResponseWriter, r *http.Request, job *hls
 		return
 	}
 	if filename != "index.m3u8" && !hlsSegmentName.MatchString(filename) {
-		http.NotFound(w, r)
+		writeHLSError(w, http.StatusNotFound, "not_found", "HLS resource not found")
 		return
 	}
 	job.mu.Lock()
@@ -401,7 +419,7 @@ func (m *hlsManager) serveMedia(w http.ResponseWriter, r *http.Request, job *hls
 		return
 	}
 	if filename != "index.m3u8" && !declared[filename] {
-		http.NotFound(w, r)
+		writeHLSError(w, http.StatusNotFound, "not_found", "HLS resource not found")
 		return
 	}
 	if filename == "index.m3u8" {
@@ -464,7 +482,7 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 || len(parts[0]) != 32 {
-		http.NotFound(w, r)
+		writeHLSError(w, http.StatusNotFound, "not_found", "HLS resource not found")
 		return
 	}
 	if r.Method == http.MethodDelete && len(parts) == 1 {
@@ -473,7 +491,7 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	job := m.get(parts[0])
 	if job == nil {
-		http.NotFound(w, r)
+		writeHLSError(w, http.StatusNotFound, "not_found", "HLS resource not found")
 		return
 	}
 	if len(parts) == 2 && parts[1] == "status" {
@@ -482,6 +500,7 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 			writeHLSError(w, 405, "method_not_allowed", "Use GET")
 			return
 		}
+		w.Header().Set("Cache-Control","no-store")
 		respondWithJSON(w, 200, job.snapshot())
 		return
 	}
