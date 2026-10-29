@@ -3,10 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,7 +154,7 @@ var (
 	ffmpegAvailable bool
 	ffmpegVersion   string
 	remuxSlots      chan struct{}
-	loopbackAuthHeader string
+	loopbackInternalToken string
 )
 
 func checkFFmpeg() {
@@ -246,25 +247,29 @@ func basicAuthMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Authentication configuration incomplete", http.StatusServiceUnavailable)
 		})
 	}
-
+	var tokenBytes [32]byte
+	if _, err := crand.Read(tokenBytes[:]); err != nil {
+		log.Fatal("failed to establish internal loopback authentication")
+	}
+	loopbackInternalToken = hex.EncodeToString(tokenBytes[:])
 	userHash := sha256.Sum256([]byte(username))
 	passHash := sha256.Sum256([]byte(password))
-	loopbackAuthHeader = "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-	log.Println("Basic authentication enabled (BITPLAY_AUTH_USERNAME/BITPLAY_AUTH_PASSWORD)")
-
+	log.Println("Basic authentication enabled")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isLoopbackRequest(r) && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-BytePlay-Internal")), []byte(loopbackInternalToken)) == 1 {
+			next.ServeHTTP(w, r)
+			return
+		}
 		user, pass, ok := r.BasicAuth()
 		if ok {
 			uh := sha256.Sum256([]byte(user))
 			ph := sha256.Sum256([]byte(pass))
-			userMatch := subtle.ConstantTimeCompare(userHash[:], uh[:]) == 1
-			passMatch := subtle.ConstantTimeCompare(passHash[:], ph[:]) == 1
-			if userMatch && passMatch {
+			if subtle.ConstantTimeCompare(userHash[:], uh[:]) == 1 && subtle.ConstantTimeCompare(passHash[:], ph[:]) == 1 {
 				next.ServeHTTP(w, r)
 				return
 			}
 		}
-		w.Header().Set("WWW-Authenticate", `Basic realm="BitPlay", charset="UTF-8"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="BytePlay", charset="UTF-8"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	})
 }
@@ -914,8 +919,8 @@ func runFFprobe(ctx context.Context, streamURL string) (*ProbeResult, error) {
 
 	args := []string{"-v", "error", "-of", "json", "-show_format", "-show_streams",
 		"-probesize", "16M", "-analyzeduration", "20M"}
-	if loopbackAuthHeader != "" {
-		args = append(args, "-headers", "Authorization: "+loopbackAuthHeader+"\r\n")
+	if loopbackInternalToken != "" {
+		args = append(args, "-headers", "X-BytePlay-Internal: "+loopbackInternalToken+"\r\n")
 	}
 	args = append(args, streamURL)
 
@@ -1071,8 +1076,8 @@ func handleRemux(w http.ResponseWriter, r *http.Request, session *TorrentSession
 	session.ProbeMu.Unlock()
 
 	args := []string{"-v", "error"}
-	if loopbackAuthHeader != "" {
-		args = append(args, "-headers", "Authorization: "+loopbackAuthHeader+"\r\n")
+	if loopbackInternalToken != "" {
+		args = append(args, "-headers", "X-BytePlay-Internal: "+loopbackInternalToken+"\r\n")
 	}
 	if startSeconds > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
