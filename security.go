@@ -90,7 +90,10 @@ func allowedIndexerURL(raw string, s Settings) bool {
 	if err != nil || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return false
 	}
-	for _, provider := range []struct{ enabled bool; host string }{
+	for _, provider := range []struct {
+		enabled bool
+		host    string
+	}{
 		{s.EnableProwlarr, s.ProwlarrHost},
 		{s.EnableJackett, s.JackettHost},
 	} {

@@ -88,7 +88,10 @@ func TestRedactedSettings(t *testing.T) {
 
 func TestIndexerOriginPolicy(t *testing.T) {
 	s := Settings{EnableProwlarr: true, ProwlarrHost: "http://127.0.0.1:9696"}
-	for _, tc := range []struct{ raw string; allowed bool }{
+	for _, tc := range []struct {
+		raw     string
+		allowed bool
+	}{
 		{"http://127.0.0.1:9696/api/v1/download?id=3", true},
 		{"http://127.0.0.1:9697/api/v1/download", false},
 		{"https://127.0.0.1:9696/api/v1/download", false},

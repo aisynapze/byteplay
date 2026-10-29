@@ -11,10 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"html"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -42,10 +42,10 @@ var (
 )
 
 type TorrentSession struct {
-	Client   *torrent.Client
-	Torrent  *torrent.Torrent
-	Port     int
-	LastUsed time.Time
+	Client        *torrent.Client
+	Torrent       *torrent.Torrent
+	Port          int
+	LastUsed      time.Time
 	ActiveStreams int32
 	ProbeMu       sync.Mutex
 	ProbeCache    map[int]*ProbeResult
@@ -69,16 +69,16 @@ type ProbeResult struct {
 }
 
 type Settings struct {
-	EnableProxy    bool   `json:"enableProxy"`
-	ProxyURL       string `json:"proxyUrl"`
-	EnableProwlarr bool   `json:"enableProwlarr"`
-	ProwlarrHost   string `json:"prowlarrHost"`
-	ProwlarrApiKey string `json:"prowlarrApiKey"`
-	EnableJackett  bool   `json:"enableJackett"`
-	JackettHost    string `json:"jackettHost"`
-	JackettApiKey  string `json:"jackettApiKey"`
-	SearchTimeoutSeconds int  `json:"searchTimeoutSeconds"`
-	SkipTLSVerify        bool `json:"skipTlsVerify"`
+	EnableProxy          bool   `json:"enableProxy"`
+	ProxyURL             string `json:"proxyUrl"`
+	EnableProwlarr       bool   `json:"enableProwlarr"`
+	ProwlarrHost         string `json:"prowlarrHost"`
+	ProwlarrApiKey       string `json:"prowlarrApiKey"`
+	EnableJackett        bool   `json:"enableJackett"`
+	JackettHost          string `json:"jackettHost"`
+	JackettApiKey        string `json:"jackettApiKey"`
+	SearchTimeoutSeconds int    `json:"searchTimeoutSeconds"`
+	SkipTLSVerify        bool   `json:"skipTlsVerify"`
 }
 
 func searchTimeout() time.Duration {
@@ -148,12 +148,12 @@ func (b *ringLogBuffer) Lines() []string {
 var logBuffer = &ringLogBuffer{max: 500}
 
 var (
-	serverPort      = 3347
-	ffmpegPath      string
-	ffprobePath     string
-	ffmpegAvailable bool
-	ffmpegVersion   string
-	remuxSlots      chan struct{}
+	serverPort            = 3347
+	ffmpegPath            string
+	ffprobePath           string
+	ffmpegAvailable       bool
+	ffmpegVersion         string
+	remuxSlots            chan struct{}
 	loopbackInternalToken string
 )
 
@@ -284,11 +284,11 @@ func createSelectiveProxyClient() *http.Client {
 		timeout = 30 * time.Second
 	}
 	transport := &http.Transport{
-		TLSHandshakeTimeout: 10 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: time.Second,
-		IdleConnTimeout: 30 * time.Second,
-		MaxIdleConnsPerHost: 10,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: snapshot.SkipTLSVerify},
+		IdleConnTimeout:       30 * time.Second,
+		MaxIdleConnsPerHost:   10,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: snapshot.SkipTLSVerify},
 	}
 	if snapshot.EnableProxy {
 		dialer, err := createProxyDialer(snapshot.ProxyURL)
@@ -304,7 +304,7 @@ func createSelectiveProxyClient() *http.Client {
 	}
 	return &http.Client{
 		Transport: transport,
-		Timeout: timeout,
+		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 || len(via) == 0 || !sameOrigin(req.URL, via[0].URL) {
 				return errors.New("cross-origin redirect denied")
@@ -541,8 +541,8 @@ func main() {
 
 	// Create a server with graceful shutdown
 	server := &http.Server{
-		Addr: addr,
-		Handler: basicAuthMiddleware(http.DefaultServeMux),
+		Addr:              addr,
+		Handler:           basicAuthMiddleware(http.DefaultServeMux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
