@@ -22,6 +22,8 @@ jobs:
     name: Go, security tests, and frontend
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      GOFLAGS: -mod=readonly
     steps:
       - uses: actions/checkout@v4
       - name: Go toolchain
@@ -29,13 +31,13 @@ jobs:
         with:
           go-version: "1.26.6"
           cache: true
-      - name: Go modules
-        run: go mod download
       - name: Format new Go files
         run: |
           test -z "$(gofmt -l security.go main_test.go)"
       - name: Compile
         run: go build ./...
+      - name: Verify downloaded Go modules
+        run: go mod verify
       - name: Vet
         run: go vet ./...
       - name: Unit tests
