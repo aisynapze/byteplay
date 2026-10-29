@@ -1,0 +1,415 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	maxHLSPlaybacks = 8
+	maxHLSCacheBytes int64 = 10 << 30
+	maxHLSPlaybackBytes int64 = 2 << 30
+)
+var hlsSegmentName = regexp.MustCompile(`^segment-[0-9]{6}.ts$`)
+
+type hlsError struct {
+	Code string `json:"code"`
+	Message string `json:"message"`
+}
+type hlsStatus struct {
+	PlaybackID string `json:"playbackId"`
+	State string `json:"state"`
+	Mode *string `json:"mode"`
+	Generation int `json:"generation"`
+	PlaylistURL *string `json:"playlistUrl"`
+	PlaylistReady bool `json:"playlistReady"`
+	StatusURL string `json:"statusUrl"`
+	DurationSeconds *float64 `json:"durationSeconds"`
+	StartSeconds float64 `json:"startSeconds"`
+	SegmentsReady int `json:"segmentsReady"`
+	TorrentBytesCompleted int64 `json:"torrentBytesCompleted"`
+	TorrentBytesTotal int64 `json:"torrentBytesTotal"`
+	SelectedFileBytesTotal int64 `json:"selectedFileBytesTotal"`
+	SelectedFileBytesCompleted *int64 `json:"selectedFileBytesCompleted"`
+	DownloadBytesPerSecond *float64 `json:"downloadBytesPerSecond"`
+	Peers int `json:"peers"`
+	BufferedSecondsEstimate *float64 `json:"bufferedSecondsEstimate"`
+	Error *hlsError `json:"error"`
+}
+type hlsCreateRequest struct {
+	SessionID string `json:"sessionId"`
+	FileIndex *int `json:"fileIndex"`
+	AudioStream *int `json:"audioStream"`
+}
+type hlsPlayback struct {
+	mu sync.Mutex
+	id string
+	sessionID string
+	fileIndex int
+	selectedAudio *int
+	dir string
+	session *TorrentSession
+	source MediaSource
+	ctx context.Context
+	cancel context.CancelFunc
+	stopOwner func()
+	done chan struct{}
+	state string
+	mode *string
+	duration *float64
+	segments int
+	playlistReady bool
+	err *hlsError
+	progress MediaSourceProgress
+	peers int
+}
+type hlsManager struct {
+	mu sync.Mutex
+	root string
+	jobs map[string]*hlsPlayback
+	processSlots chan struct{}
+	videoSlots chan struct{}
+	ffmpeg string
+}
+func newHLSManager(root, ffmpeg string) *hlsManager {
+	return &hlsManager{root:root,ffmpeg:ffmpeg,jobs:make(map[string]*hlsPlayback),
+		processSlots:make(chan struct{},2),videoSlots:make(chan struct{},1)}
+}
+var activeHLS = newHLSManager("./hls-data", "")
+
+func writeHLSError(w http.ResponseWriter, code int, key, message string) {
+	respondWithJSON(w,code,map[string]interface{}{"error":hlsError{Code:key,Message:message}})
+}
+func newPlaybackID() (string,error) {
+	var id [16]byte
+	if _,err := rand.Read(id[:]);err!=nil{return "",err}
+	return hex.EncodeToString(id[:]),nil
+}
+func (j *hlsPlayback) snapshot() hlsStatus {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	s := hlsStatus{PlaybackID:j.id,State:j.state,Mode:j.mode,Generation:1,
+		PlaylistReady:j.playlistReady,StatusURL:"/api/v1/hls/"+j.id+"/status",
+		DurationSeconds:j.duration,StartSeconds:0,SegmentsReady:j.segments,
+		TorrentBytesCompleted:j.progress.TorrentBytesCompleted,TorrentBytesTotal:j.progress.TorrentBytesTotal,
+		SelectedFileBytesTotal:j.progress.FileBytesTotal,
+		DownloadBytesPerSecond:nil,Peers:j.peers,Error:j.err}
+	if j.progress.FileBytesTotal>0 {
+		n := j.progress.FileBytesCompleted
+		s.SelectedFileBytesCompleted = &n
+	}
+	if j.playlistReady {
+		url := "/api/v1/hls/"+j.id+"/g/1/index.m3u8"
+		s.PlaylistURL=&url
+	}
+	return s
+}
+func (j *hlsPlayback) setError(state,code,msg string) {
+	j.mu.Lock()
+	j.state=state
+	j.err=&hlsError{Code:code,Message:msg}
+	j.mu.Unlock()
+}
+func (j *hlsPlayback) observe() {
+	p:=j.source.Progress()
+	peers:=0
+	if j.session!=nil && j.session.Torrent!=nil {
+		peers=j.session.Torrent.Stats().ActivePeers
+	}
+	j.mu.Lock()
+	j.progress=p
+	j.peers=peers
+	j.mu.Unlock()
+}
+func (m *hlsManager) get(id string) *hlsPlayback {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.jobs[id]
+}
+func (m *hlsManager) create(w http.ResponseWriter,r *http.Request) {
+	if m.ffmpeg=="" || ffprobePath=="" {
+		writeHLSError(w,http.StatusServiceUnavailable,"ffmpeg_unavailable","FFmpeg and FFprobe must be installed")
+		return
+	}
+	var req hlsCreateRequest
+	r.Body=http.MaxBytesReader(w,r.Body,8<<10)
+	decoder:=json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&req)!=nil || decoder.Decode(new(interface{}))!=io.EOF || req.SessionID=="" || req.FileIndex==nil {
+		writeHLSError(w,http.StatusBadRequest,"invalid_request","Expected sessionId and fileIndex")
+		return
+	}
+	session,ok:=retainTorrentSession(req.SessionID,true)
+	if !ok {
+		writeHLSError(w,http.StatusNotFound,"torrent_not_found","Torrent session not found")
+		return
+	}
+	release:=true
+	defer func(){if release {releaseTorrentSession(session)}}()
+	source,err:=newMediaSource(session.Torrent,*req.FileIndex)
+	if err!=nil {
+		writeHLSError(w,http.StatusBadRequest,"invalid_file_index","File index unavailable")
+		return
+	}
+	switch strings.ToLower(filepath.Ext(source.file.DisplayPath())) {
+	case ".mp4",".mkv",".avi",".webm",".mov",".m4v",".wmv":
+	default:
+		writeHLSError(w,http.StatusUnsupportedMediaType,"unsupported_media","Selected file is not a supported video container")
+		return
+	}
+	m.mu.Lock()
+	if len(m.jobs)>=maxHLSPlaybacks {
+		m.mu.Unlock()
+		writeHLSError(w,http.StatusTooManyRequests,"playback_limit","Too many playback sessions")
+		return
+	}
+	// Check capacity before reserving another output directory.
+	if dirSize(m.root)>=maxHLSCacheBytes {
+		m.mu.Unlock()
+		writeHLSError(w,http.StatusInsufficientStorage,"cache_full","HLS cache capacity reached")
+		return
+	}
+	id,err:=newPlaybackID()
+	if err!=nil {m.mu.Unlock();writeHLSError(w,500,"id_unavailable","Failed to create playback");return}
+	if err:=os.MkdirAll(m.root,0700);err!=nil {
+		m.mu.Unlock();writeHLSError(w,500,"cache_unavailable","HLS cache directory unavailable");return
+	}
+	dir:=filepath.Join(m.root,id)
+	if err:=os.Mkdir(dir,0700);err!=nil {
+		m.mu.Unlock();writeHLSError(w,500,"cache_unavailable","HLS playback directory unavailable");return
+	}
+	ctx,stopOwner:=sessionRequestContext(session,context.Background())
+	ctx,cancel:=context.WithCancel(ctx)
+	job:=&hlsPlayback{
+		id:id,sessionID:req.SessionID,fileIndex:*req.FileIndex,selectedAudio:req.AudioStream,
+		dir:dir,session:session,source:source,ctx:ctx,cancel:cancel,stopOwner:stopOwner,
+		done:make(chan struct{}),state:"queued",progress:source.Progress(),
+	}
+	m.jobs[id]=job
+	m.mu.Unlock()
+	release=false
+	go m.run(job)
+	respondWithJSON(w,http.StatusCreated,job.snapshot())
+}
+func (m *hlsManager) run(job *hlsPlayback) {
+	defer close(job.done)
+	defer releaseTorrentSession(job.session)
+	defer job.stopOwner()
+	defer job.cancel()
+	if err:=job.ctx.Err();err!=nil {job.setError("cancelled","cancelled","Playback cancelled");return}
+	job.mu.Lock()
+	job.state="probing"
+	job.mu.Unlock()
+	probe,err:=runFFprobe(job.ctx,loopbackStreamURL(job.sessionID,job.fileIndex))
+	if err!=nil {
+		if job.ctx.Err()!=nil {job.setError("cancelled","cancelled","Playback cancelled")
+		} else {job.setError("failed","probe_failed","Unable to probe the selected media")}
+		return
+	}
+	profile,err:=MediaProfileFromProbe(probe,job.selectedAudio)
+	if err!=nil {
+		job.setError("failed","unsupported_media","Selected media has no supported video/audio streams")
+		return
+	}
+	route,err:=ChooseHLSRoute(profile,HLSLimits{MaxInputWidth:3840,MaxInputHeight:2160})
+	if err!=nil {
+		job.setError("failed","unsupported_media","Unable to choose supported HLS encoding")
+		return
+	}
+	opts:=HLSFFmpegOptions{
+		Input:loopbackStreamURL(job.sessionID,job.fileIndex),
+		Playlist:filepath.Join(job.dir,"index.m3u8"),
+		SegmentPattern:filepath.Join(job.dir,"segment-%06d.ts"),
+	}
+	args,err:=BuildHLSFFmpegArgs(route,opts)
+	if err!=nil {job.setError("failed","invalid_route","Unable to prepare media encoder");return}
+	if loopbackInternalToken!="" {
+		// -headers is an FFmpeg input option; place it immediately before -i.
+		for i,arg:=range args {
+			if arg=="-i" {
+				a:=append([]string{},args[:i]...)
+				a=append(a,"-headers","X-BytePlay-Internal: "+loopbackInternalToken+"\r\n")
+				args=append(a,args[i:]...)
+				break
+			}
+		}
+	}
+	job.mu.Lock()
+	mode:=string(route.Mode)
+	job.mode=&mode
+	if probe.Duration>0 {dur:=probe.Duration;job.duration=&dur}
+	job.state="preparing"
+	job.mu.Unlock()
+	// Do not reserve a process slot for metadata lookup or probing.
+	select {
+	case m.processSlots<-struct{}{}:
+	case <-job.ctx.Done():
+		job.setError("cancelled","cancelled","Playback cancelled");return
+	}
+	defer func(){<-m.processSlots}()
+	if route.Mode==HLSRouteVideoTranscode {
+		select {
+		case m.videoSlots<-struct{}{}:
+			defer func(){<-m.videoSlots}()
+		case <-job.ctx.Done():
+			job.setError("cancelled","cancelled","Playback cancelled");return
+		}
+	}
+	if job.ctx.Err()!=nil {job.setError("cancelled","cancelled","Playback cancelled");return}
+	command:=exec.CommandContext(job.ctx,m.ffmpeg,args...)
+	command.WaitDelay=3*time.Second
+	stderr:=&limitedWriter{max:4096}
+	command.Stderr=stderr
+	if err:=command.Start();err!=nil {job.setError("failed","encoder_start_failed","Unable to start FFmpeg");return}
+	wait:=make(chan error,1)
+	go func(){wait<-command.Wait()}()
+	ticker:=time.NewTicker(150*time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case err:=<-wait:
+			job.observe()
+			count,ready,_:=inspectHLSManifest(job.dir)
+			job.mu.Lock()
+			if count>job.segments {job.segments=count}
+			if ready {job.playlistReady=true}
+			job.mu.Unlock()
+			if job.ctx.Err()!=nil {job.setError("cancelled","cancelled","Playback cancelled")
+			} else if err!=nil {job.setError("failed","encoder_failed","FFmpeg could not generate HLS media")
+			} else if !ready {job.setError("failed","invalid_playlist","FFmpeg exited without two finalized segments")
+			} else {job.mu.Lock();job.state="complete";job.mu.Unlock()}
+			return
+		case <-ticker.C:
+			job.observe()
+			count,ready,_:=inspectHLSManifest(job.dir)
+			job.mu.Lock()
+			if count>job.segments {job.segments=count}
+			if ready && !job.playlistReady {job.playlistReady=true;job.state="ready"}
+			job.mu.Unlock()
+			if dirSize(job.dir)>maxHLSPlaybackBytes || dirSize(m.root)>maxHLSCacheBytes {
+				job.setError("failed","cache_full","HLS cache quota reached")
+				job.cancel()
+			}
+		}
+	}
+}
+// A manifest is published only after at least two referenced, finalized,
+// non-empty TS files are readable; unlisted or .tmp files are never served.
+func inspectHLSManifest(dir string) (int,bool,map[string]bool) {
+	raw,err:=os.ReadFile(filepath.Join(dir,"index.m3u8"))
+	if err!=nil || !strings.HasPrefix(string(raw),"#EXTM3U") {
+		return 0,false,nil
+	}
+	names:=make(map[string]bool)
+	for _,line:=range strings.Split(string(raw),"\n") {
+		name:=strings.TrimSpace(line)
+		if !hlsSegmentName.MatchString(name) {continue}
+		info,err:=os.Stat(filepath.Join(dir,name))
+		if err!=nil || info.IsDir() || info.Size()==0 {continue}
+		names[name]=true
+	}
+	return len(names),len(names)>=2,names
+}
+func (m *hlsManager) serveMedia(w http.ResponseWriter,r *http.Request,job *hlsPlayback,generation,filename string) {
+	if generation!="1" {
+		writeHLSError(w,http.StatusGone,"generation_expired","Playback generation is no longer available")
+		return
+	}
+	if filename!="index.m3u8" && !hlsSegmentName.MatchString(filename) {
+		http.NotFound(w,r);return
+	}
+	job.mu.Lock()
+	ready:=job.playlistReady
+	job.mu.Unlock()
+	if !ready {
+		writeHLSError(w,http.StatusTooEarly,"preparing","HLS media is not ready yet")
+		return
+	}
+	_,valid,declared:=inspectHLSManifest(job.dir)
+	if !valid {
+		writeHLSError(w,http.StatusTooEarly,"preparing","No valid HLS manifest available")
+		return
+	}
+	if filename!="index.m3u8" && !declared[filename] {http.NotFound(w,r);return}
+	if filename=="index.m3u8" {
+		w.Header().Set("Content-Type","application/vnd.apple.mpegurl")
+		w.Header().Set("Cache-Control","no-store")
+	} else {
+		w.Header().Set("Content-Type","video/mp2t")
+		w.Header().Set("Cache-Control","private, max-age=120")
+	}
+	http.ServeFile(w,r,filepath.Join(job.dir,filename))
+}
+func (m *hlsManager) delete(w http.ResponseWriter,r *http.Request,id string) {
+	m.mu.Lock()
+	job:=m.jobs[id]
+	if job!=nil {delete(m.jobs,id)}
+	m.mu.Unlock()
+	if job!=nil {
+		job.cancel()
+		go func(){
+			<-job.done
+			_ = os.RemoveAll(job.dir)
+		}()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (m *hlsManager) stopAll(timeout time.Duration) {
+	m.mu.Lock()
+	jobs:=make([]*hlsPlayback,0,len(m.jobs))
+	for id,j:=range m.jobs {jobs=append(jobs,j);delete(m.jobs,id)}
+	m.mu.Unlock()
+	for _,j:=range jobs {j.cancel()}
+	deadline:=time.NewTimer(timeout)
+	defer deadline.Stop()
+	for _,j:=range jobs {
+		select {
+		case <-j.done:
+			_ = os.RemoveAll(j.dir)
+		case <-deadline.C:
+			return
+		}
+	}
+}
+func (m *hlsManager) handler(w http.ResponseWriter,r *http.Request) {
+	path:=strings.TrimPrefix(r.URL.Path,"/api/v1/hls/")
+	if path=="sessions" {
+		if r.Method!=http.MethodPost {w.Header().Set("Allow","POST");writeHLSError(w,405,"method_not_allowed","Use POST");return}
+		m.create(w,r)
+		return
+	}
+	parts:=strings.Split(path,"/")
+	if len(parts)==0 || len(parts[0])!=32 {
+		http.NotFound(w,r);return
+	}
+	if r.Method==http.MethodDelete && len(parts)==1 {m.delete(w,r,parts[0]);return}
+	job:=m.get(parts[0])
+	if job==nil {http.NotFound(w,r);return}
+	if len(parts)==2 && parts[1]=="status" {
+		if r.Method!=http.MethodGet {w.Header().Set("Allow","GET");writeHLSError(w,405,"method_not_allowed","Use GET");return}
+		respondWithJSON(w,200,job.snapshot())
+		return
+	}
+	if len(parts)==4 && parts[1]=="g" {
+		if r.Method!=http.MethodGet && r.Method!=http.MethodHead {
+			w.Header().Set("Allow","GET, HEAD");writeHLSError(w,405,"method_not_allowed","Use GET or HEAD");return
+		}
+		m.serveMedia(w,r,job,parts[2],parts[3])
+		return
+	}
+	http.NotFound(w,r)
+}
