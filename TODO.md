@@ -7,7 +7,7 @@ Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41` — main identical a
 - [ ] M2 — Phase 1 session ownership: PARTIAL (infohash dedup/retention, owned reader cancellation, bounded purge/drain, graceful HTTP shutdown all unit/race CI-green; real seeded media and full acceptance pending)
 - [ ] M3 — sequential torrent source: CI VERIFIED (local selected-file 206 range, >200 MiB seeded fixture at 20/100 Mbps with race); full streaming/HLS integration and buffer benchmark pending
 - [ ] M4 — probe and route: CI VERIFIED (codec matrix, FFmpeg argv, finalized H264/AAC HLS from three synthetic local sources); torrent-backed HLS playback pending
-- [ ] M5 — HLS generation: IN PROGRESS (generation-1 async job/HTTP API and bounded worker drafted; CI and real torrent-to-HLS gate pending)
+- [ ] M5 — HLS generation: CORE CI VERIFIED (real seeded torrent → FFprobe → FFmpeg → generation-1 HLS ready/media; 2-segment gate and bounded worker concurrency tested). Still OPEN: quota/retention lifecycle certification, multi-playback stress, startup measurement, full M5 gates.
 - [ ] M6 — seek and lifecycle: NOT VERIFIED
 - [ ] M7 — Midnight Current UI: NOT VERIFIED
 - [ ] M8 — release certification: NOT VERIFIED
