@@ -579,8 +579,18 @@ func main() {
 
 // Handler to add a torrent using a magnet link
 func addTorrentHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	var request struct{ Magnet string }
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			respondWithJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "Torrent input exceeds 16 KB"})
+			return
+		}
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
 		return
 	}
