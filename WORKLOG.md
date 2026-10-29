@@ -60,3 +60,9 @@
 - HTTP status 206 and exact clip bytes 1024–8191 validated at 20 and 100 Mbps rate-limited client configurations; torrent completed only 360448/74780311 and 393216/74780311 bytes, respectively.
 - Improved assertions to require selected-file completion below 100%, and expanded sparse sibling padding to 220 MiB to match L3 M3 fixture-size gate. First-byte latency is now reported as a numeric millisecond value. A race-enabled local seed run was added; pending confirmation.
 - These prove range reads before full completion; they do NOT certify 2 playable HLS segments, a true 1-minute startup budget, peak buffer or real-web peer behavior.
+
+## 2026-10-29 — M4 route planning code
+
+- Added typed MediaProfileFromProbe and ChooseHLSRoute with H264/AAC copy candidate, AAC-only conversion for AC3/Opus/etc, software x264 route for HEVC/VP9/AV1/high-bit-depth, explicit audio-track selection and bounded video input.
+- Extended FFprobe stream metadata (pix_fmt, width, height, avg frame rate). Deterministic matrix tests were added for H264/AAC, H264/AC3, HEVC/AAC, VP9/Opus, high bit depth, invalid source, missing video and absolute audio indexes.
+- CI status pending on this code. These route decisions are not actual MPEG-TS HLS output and do not certify playback.

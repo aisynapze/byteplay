@@ -6,7 +6,7 @@ Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41` — main identical a
 - [ ] M1 — Phase 0 security: NOT VERIFIED
 - [ ] M2 — Phase 1 session ownership: PARTIAL (infohash dedup/retention, owned reader cancellation, bounded purge/drain, graceful HTTP shutdown all unit/race CI-green; real seeded media and full acceptance pending)
 - [ ] M3 — sequential torrent source: PARTIAL — selected source, 20/100Mbps offline-seed integration green; tightened/large fixture and race proof pending
-- [ ] M4 — probe and route: NOT VERIFIED
+- [ ] M4 — probe and route: IN PROGRESS (typed selection matrix, Go CI pending; FFmpeg runner and playable HLS not implemented)
 - [ ] M5 — HLS generation: NOT VERIFIED
 - [ ] M6 — seek and lifecycle: NOT VERIFIED
 - [ ] M7 — Midnight Current UI: NOT VERIFIED
