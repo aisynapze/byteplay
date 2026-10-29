@@ -1,0 +1,50 @@
+name: BytePlay quality checks
+on:
+  push:
+    branches: ["implement/byteplay-v0.1.1"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Go, security tests, and frontend
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: true
+      - name: Go modules
+        run: go mod download
+      - name: Format new Go files
+        run: |
+          test -z "$(gofmt -l security.go main_test.go)"
+      - name: Compile
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Race detector
+        run: go test -race ./...
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: JavaScript syntax
+        run: node --check client/assets/index.js
+      - name: CSS build
+        run: |
+          npm ci
+          npm run build
+      - name: FFmpeg availability
+        run: |
+          ffmpeg -hide_banner -encoders | grep libx264
+          ffmpeg -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]'
+          ffprobe -version
