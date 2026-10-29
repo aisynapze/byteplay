@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"html"
 	"io"
 	"log"
@@ -232,13 +233,6 @@ func formatSize(sizeInBytes float64) string {
 	return fmt.Sprintf("%.2f GB", sizeInGB)
 }
 
-var proxyTransport = &http.Transport{
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 1 * time.Second,
-	IdleConnTimeout:       30 * time.Second,
-	MaxIdleConnsPerHost:   10,
-}
-
 // Basic auth for the whole app when BITPLAY_AUTH_USERNAME and
 // BITPLAY_AUTH_PASSWORD are both set; a no-op otherwise
 func basicAuthMiddleware(next http.Handler) http.Handler {
@@ -275,58 +269,50 @@ func basicAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func copyHeadersOnRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 10 {
-		return errors.New("too many redirects")
-	}
-	for k, vv := range via[0].Header {
-		if _, ok := req.Header[k]; !ok {
-			req.Header[k] = vv
-		}
-	}
-	return nil
-}
-
+// Independent transports prevent proxy-setting races and state bleed.
 func createSelectiveProxyClient() *http.Client {
 	settingsMutex.RLock()
-	enableProxy := currentSettings.EnableProxy
-	proxyURL := currentSettings.ProxyURL
-	skipVerify := currentSettings.SkipTLSVerify
+	snapshot := currentSettings
 	settingsMutex.RUnlock()
-
-	timeout := searchTimeout()
-
-	var tlsConfig *tls.Config
-	if skipVerify {
-		tlsConfig = &tls.Config{InsecureSkipVerify: true}
+	timeout := time.Duration(snapshot.SearchTimeoutSeconds) * time.Second
+	if timeout <= 0 || timeout > 120*time.Second {
+		timeout = 30 * time.Second
 	}
-
-	if !enableProxy {
-		return &http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-				IdleConnTimeout:       30 * time.Second,
-				MaxIdleConnsPerHost:   10,
-				TLSClientConfig:       tlsConfig,
-			},
+	transport := &http.Transport{
+		TLSHandshakeTimeout: 10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+		IdleConnTimeout: 30 * time.Second,
+		MaxIdleConnsPerHost: 10,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: snapshot.SkipTLSVerify},
+	}
+	if snapshot.EnableProxy {
+		dialer, err := createProxyDialer(snapshot.ProxyURL)
+		if err != nil {
+			return &http.Client{Timeout: timeout, Transport: errorTransport{}}
+		}
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if d, ok := dialer.(proxy.ContextDialer); ok {
+				return d.DialContext(ctx, network, addr)
+			}
+			return dialer.Dial(network, addr)
 		}
 	}
-	// Reconfigure proxyTransport’s DialContext if URL changed:
-	dialer, _ := createProxyDialer(proxyURL)
-	proxyTransport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return dialer.Dial(network, addr)
-	}
-	proxyTransport.TLSClientConfig = tlsConfig
-	// Drop any old idle conns after reconfiguration:
-	proxyTransport.CloseIdleConnections()
-
 	return &http.Client{
-		Transport:     proxyTransport,
-		Timeout:       timeout,
-		CheckRedirect: copyHeadersOnRedirect,
+		Transport: transport,
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || len(via) == 0 || !sameOrigin(req.URL, via[0].URL) {
+				return errors.New("cross-origin redirect denied")
+			}
+			return nil
+		},
 	}
+}
+
+type errorTransport struct{}
+
+func (errorTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("invalid SOCKS5 proxy configuration")
 }
 
 // Create a proxy dialer for SOCKS5
@@ -393,11 +379,6 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 
 	if enableProxy {
 		log.Println("Creating torrent client with proxy...")
-		os.Setenv("ALL_PROXY", proxyURL)
-		os.Setenv("SOCKS_PROXY", proxyURL)
-		os.Setenv("HTTP_PROXY", proxyURL)
-		os.Setenv("HTTPS_PROXY", proxyURL)
-
 		proxyDialer, err := createProxyDialer(proxyURL)
 		if err != nil {
 			releasePort(port)
@@ -422,11 +403,6 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 	}
 
 	log.Println("Creating torrent client without proxy...")
-	os.Unsetenv("ALL_PROXY")
-	os.Unsetenv("SOCKS_PROXY")
-	os.Unsetenv("HTTP_PROXY")
-	os.Unsetenv("HTTPS_PROXY")
-
 	client, err := torrent.NewClient(config)
 	if err != nil {
 		releasePort(port)
@@ -593,35 +569,6 @@ func main() {
 
 		// Block forever (the server is running in a goroutine)
 		select {}
-	}
-}
-
-// Set up global proxy for all Go HTTP calls
-func setGlobalProxy() {
-	settingsMutex.RLock()
-	enableProxy := currentSettings.EnableProxy
-	proxyURL := currentSettings.ProxyURL
-	settingsMutex.RUnlock()
-
-	if !enableProxy {
-		log.Println("Proxy is disabled, not setting global HTTP proxy.")
-		return
-	}
-
-	proxyDialer, err := createProxyDialer(proxyURL)
-	if err != nil {
-		log.Printf("Warning: Could not create proxy dialer: %v", err)
-		return
-	}
-
-	httpTransport, ok := http.DefaultTransport.(*http.Transport)
-	if ok {
-		httpTransport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return proxyDialer.Dial(network, addr)
-		}
-		log.Printf("Successfully configured SOCKS5 proxy for all HTTP traffic: %s", proxyURL)
-	} else {
-		log.Println("⚠️ Warning: Could not override HTTP transport")
 	}
 }
 
@@ -1756,34 +1703,40 @@ func testProxyConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper function to save settings to file (assumes mutex is already locked)
-func saveSettingsToFile() error {
-	// Create the directory if it doesn't exist
-	if err := os.MkdirAll("config", 0755); err != nil {
-		log.Fatalf("Failed to create config directory: %v", err)
-	}
+var settingsWriteMutex sync.Mutex
 
+func saveSettingsToFile() error {
+	settingsWriteMutex.Lock()
+	defer settingsWriteMutex.Unlock()
+	if err := os.MkdirAll("config", 0700); err != nil {
+		return err
+	}
 	settingsMutex.RLock()
 	snapshot := currentSettings
 	settingsMutex.RUnlock()
-
-	// 0600: the file contains API keys
-	file, err := os.OpenFile("config/settings.json", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	file, err := os.CreateTemp("config", ".settings-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	// the mode above only applies on creation
+	defer os.Remove(file.Name())
 	if err := file.Chmod(0600); err != nil {
-		log.Printf("Warning: could not chmod settings.json: %v", err)
+		file.Close()
+		return err
 	}
-
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(snapshot); err != nil {
+		file.Close()
 		return err
 	}
-
-	return nil
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), "config/settings.json")
 }
 
 // Proxy Settings Save Handler
@@ -1814,8 +1767,6 @@ func saveProxySettingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	println("Proxy settings saved successfully")
-
-	setGlobalProxy()
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Proxy settings saved successfully"})
 }
