@@ -146,3 +146,24 @@ func TestHLSStopAllCancelsOwnedWork(t *testing.T) {
 		t.Fatal("shutdown retained playback jobs")
 	}
 }
+
+func TestHLSCreationBodyTooLargeReturnsStructured413(t *testing.T) {
+	prev:=ffprobePath
+	ffprobePath="test-ffprobe"
+	defer func(){ffprobePath=prev}()
+	manager:=newHLSManager(t.TempDir(),"test-ffmpeg")
+	body:=strings.NewReader("{\"sessionId\":\""+strings.Repeat("x",9000)+"\",\"fileIndex\":0}")
+	w:=httptest.NewRecorder()
+	manager.handler(w,httptest.NewRequest(http.MethodPost,"/api/v1/hls/sessions",body))
+	if w.Code!=http.StatusRequestEntityTooLarge || !strings.Contains(w.Body.String(),"\"request_too_large\"") {
+		t.Fatalf("oversized request returned %d %s",w.Code,w.Body.String())
+	}
+}
+func TestHLSUnknownAssetReturnsStructured404(t *testing.T) {
+	m:=newHLSManager(t.TempDir(),"unused")
+	w:=httptest.NewRecorder()
+	m.handler(w,httptest.NewRequest(http.MethodGet,"/api/v1/hls/0123456789abcdef0123456789abcdef/status",nil))
+	if w.Code!=http.StatusNotFound || !strings.Contains(w.Body.String(),"\"not_found\"") {
+		t.Fatalf("unknown HLS job: %d %s",w.Code,w.Body.String())
+	}
+}
