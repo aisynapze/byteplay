@@ -184,6 +184,74 @@ func TestTorrentBackedHLSReadyBeforeWholeTorrentCompletion(t *testing.T) {
 	if segments < 2 {
 		t.Fatalf("ready manifest had %d finalized segments", segments)
 	}
+	// An invalid audio track is rejected before cancelling the existing job.
+	invalidAudio := fmt.Sprintf("{\"seconds\":8,\"audioStream\":999}")
+	resp, err = client.Post(base+"/api/v1/hls/"+ticket.PlaybackID+"/seek", "application/json", bytes.NewBufferString(invalidAudio))
+	if err != nil {t.Fatal(err)}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid audio should return 400, got %d", resp.StatusCode)
+	}
+	if m := manager.get(ticket.PlaybackID); m == nil || m.snapshot().Generation != 1 {
+		t.Fatal("invalid audio seek superseded current playback")
+	}
+	for _, action := range []string{"pause", "pause", "resume", "resume"} {
+		response, err := client.Post(base+"/api/v1/hls/"+ticket.PlaybackID+"/control",
+			"application/json",bytes.NewBufferString("{\"action\":\""+action+"\"}"))
+		if err!=nil {t.Fatal(err)}
+		response.Body.Close()
+		if response.StatusCode!=http.StatusOK {t.Fatalf("control %s returned %d",action,response.StatusCode)}
+	}
+	// A far seek and subsequent audio-track selection must restart under
+	// immutable generation IDs. Old playlist URLs must return 410.
+	for _, step := range []struct{seconds int;audio bool}{
+		{8,false},{14,true},{20,false},{26,false},
+	} {
+		payload:=fmt.Sprintf("{\"seconds\":%d}",step.seconds)
+		if step.audio {payload=fmt.Sprintf("{\"seconds\":%d,\"audioStream\":1}",step.seconds)}
+		previous:=ready.PlaylistURL
+		response,err:=client.Post(base+"/api/v1/hls/"+ticket.PlaybackID+"/seek","application/json",bytes.NewBufferString(payload))
+		if err!=nil {t.Fatal(err)}
+		var started struct {PlaybackID string `json:"playbackId"`;Generation int `json:"generation"`;State string `json:"state"`;StatusURL string `json:"statusUrl"`}
+		err=json.NewDecoder(response.Body).Decode(&started)
+		response.Body.Close()
+		if response.StatusCode!=http.StatusAccepted || err!=nil || started.State!="preparing" {
+			t.Fatalf("seek response %d %+v err=%v",response.StatusCode,started,err)
+		}
+		if started.Generation!=ready.Generation+1 {t.Fatalf("generation skipped %+v previous %+v",started,ready)}
+		if previous!=nil {
+			stale,err:=client.Get(base+*previous)
+			if err!=nil {t.Fatal(err)}
+			stale.Body.Close()
+			if stale.StatusCode!=http.StatusGone {
+				t.Fatalf("old generation returned %d instead of 410",stale.StatusCode)
+			}
+		}
+		limit:=time.Now().Add(30*time.Second)
+		for time.Now().Before(limit) {
+			statusResp,err:=client.Get(base+started.StatusURL)
+			if err!=nil {t.Fatal(err)}
+			err=json.NewDecoder(io.LimitReader(statusResp.Body,8192)).Decode(&ready)
+			statusResp.Body.Close()
+			if err!=nil {t.Fatal(err)}
+			if ready.State=="failed"||ready.State=="cancelled" {t.Fatalf("seek generation failed: %+v",ready)}
+			if ready.Generation==started.Generation && ready.PlaylistReady {break}
+			time.Sleep(100*time.Millisecond)
+		}
+		if ready.Generation!=started.Generation||!ready.PlaylistReady||ready.PlaylistURL==nil||ready.SegmentsReady<2 {
+			t.Fatalf("seek generation not ready: %+v",ready)
+		}
+		if ready.StartSeconds!=float64(step.seconds) {
+			t.Fatalf("seek offset not carried through: got %.2f expected %d",ready.StartSeconds,step.seconds)
+		}
+		check,err:=client.Get(base+*ready.PlaylistURL)
+		if err!=nil {t.Fatal(err)}
+		bits,_:=io.ReadAll(io.LimitReader(check.Body,65536))
+		check.Body.Close()
+		if check.StatusCode!=200||!bytes.Contains(bits,[]byte("#EXTM3U")) {
+			t.Fatalf("generation %d manifest invalid HTTP %d",ready.Generation,check.StatusCode)
+		}
+	}
 	t.Logf("torrent_hls_ready id=%s mode=%v segments=%d torrent_completed=%d/%d",
 		ticket.PlaybackID, ready.Mode, ready.SegmentsReady, ready.TorrentBytesCompleted, ready.TorrentBytesTotal)
 }
