@@ -110,14 +110,14 @@ func TestSeededMediaSourceRangeBeforeFullDownload(t *testing.T) {
 				t.Fatal("local seeded torrent range does not match original clip")
 			}
 			progress := reader.Progress()
-			t.Logf("local_source_mbps=%d first_byte_ms=%v bytes_served=%d selected_completed=%d torrent_completed=%d total=%d",
-				mbps, progress.FirstByteLatencyMillis, progress.BytesServed,
+			t.Logf("local_source_mbps=%d first_byte_ms=%d bytes_served=%d selected_completed=%d torrent_completed=%d total=%d",
+				mbps, *progress.FirstByteLatencyMillis, progress.BytesServed,
 				progress.FileBytesCompleted, progress.TorrentBytesCompleted, progress.TorrentBytesTotal)
 			if progress.FirstByteLatencyMillis == nil || progress.BytesServed < 7168 {
 				t.Fatalf("missing observed first-byte/bytes-served metrics: %+v", progress)
 			}
-			if progress.FileBytesCompleted < 8192 {
-				t.Fatalf("requested selected-file pieces not available: %+v", progress)
+			if progress.FileBytesCompleted < 8192 || progress.FileBytesCompleted >= progress.FileBytesTotal {
+				t.Fatalf("selected file must be partially downloaded after range read: %+v", progress)
 			}
 			if progress.TorrentBytesTotal <= int64(len(original)) || progress.TorrentBytesCompleted >= progress.TorrentBytesTotal {
 				t.Fatalf("range required the full torrent download: %+v", progress)

@@ -93,10 +93,13 @@ jobs:
             -t 60 -c:v libx264 -preset ultrafast -crf 32 \
             -pix_fmt yuv420p -c:a aac -b:a 96k \
             -movflags +faststart "$RUNNER_TEMP/byteplay-seed/clip.mp4"
-          truncate -s 67108864 "$RUNNER_TEMP/byteplay-seed/padding.bin"
+          truncate -s 230686720 "$RUNNER_TEMP/byteplay-seed/padding.bin"
           test -s "$RUNNER_TEMP/byteplay-seed/clip.mp4"
       - name: Range and partial-download integration, loopback peers only
         env:
           BYTEPLAY_TEST_FIXTURE_ROOT: ${{ runner.temp }}/byteplay-seed
         run: |
-          go test -tags=integration -run '^TestSeededMediaSourceRangeBeforeFullDownload$' -count=1 -timeout=120s -v .
+          go test -tags=integration -run '^TestSeededMediaSourceRangeBeforeFullDownload
+ -count=1 -timeout=120s -v .
+          go test -race -tags=integration -run '^TestSeededMediaSourceRangeBeforeFullDownload
+ -count=1 -timeout=120s -v .

@@ -53,3 +53,10 @@
 - Passed Go 1.26.6 compilation, gofmt, `go mod verify`, `go vet ./...`, `go test ./...`, `go test -race ./...`, JavaScript syntax, npm CSS build and FFmpeg/FFprobe encoder checks.
 - Implemented: P1-01 synchronized LastUsed and retained handlers; P1-02 in-flight deduplication; P1-03 session-owned reader/probe/remux contexts; P1-06 cancel+drain before cache deletion with bounded 409-preserve behavior; P1-07 signal-triggered, bounded HTTP shutdown.
 - Still NOT certified: an actual seeded torrent/FFmpeg cancellation integration run, cancellation of in-flight metadata fetches (currently 409), failure-injection for settings writes, and complete P1-08 status/code matrix. M2 remains PARTIAL, M3–M8 remain OPEN.
+
+## 2026-10-29 — verified M3 local seed and selected-file range
+
+- [GitHub Actions #40960730318](https://github.com/aisynapze/byteplay/actions/runs/40960730318) at 5fbc08ccf1a5f6e6de96ecf5352a109e4188ef45: SUCCESS. Two jobs, including offline local seeder on synthetic 60-second H264/AAC test-pattern clip.
+- HTTP status 206 and exact clip bytes 1024–8191 validated at 20 and 100 Mbps rate-limited client configurations; torrent completed only 360448/74780311 and 393216/74780311 bytes, respectively.
+- Improved assertions to require selected-file completion below 100%, and expanded sparse sibling padding to 220 MiB to match L3 M3 fixture-size gate. First-byte latency is now reported as a numeric millisecond value. A race-enabled local seed run was added; pending confirmation.
+- These prove range reads before full completion; they do NOT certify 2 playable HLS segments, a true 1-minute startup budget, peak buffer or real-web peer behavior.
