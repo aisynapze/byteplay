@@ -13,7 +13,6 @@ import (
 	"html"
 	"io"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -245,8 +244,13 @@ var proxyTransport = &http.Transport{
 func basicAuthMiddleware(next http.Handler) http.Handler {
 	username := os.Getenv("BITPLAY_AUTH_USERNAME")
 	password := os.Getenv("BITPLAY_AUTH_PASSWORD")
-	if username == "" || password == "" {
+	if username == "" && password == "" {
 		return next
+	}
+	if username == "" || password == "" {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Authentication configuration incomplete", http.StatusServiceUnavailable)
+		})
 	}
 
 	userHash := sha256.Sum256([]byte(username))
@@ -505,33 +509,10 @@ func main() {
 
 	checkFFmpeg()
 
-	// Seed random number generator
-	rand.Seed(time.Now().UnixNano())
-
-	// Force proxy for all Go HTTP connections
-	setGlobalProxy()
-
 	// Set up endpoint handlers
 	http.HandleFunc("/api/v1/torrent/add", addTorrentHandler)
 	http.HandleFunc("/api/v1/torrent/", torrentHandler)
-	http.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			settingsMutex.RLock()
-			snapshot := currentSettings
-			settingsMutex.RUnlock()
-
-			resp := struct {
-				Settings
-				ProwlarrApiKeySet bool `json:"prowlarrApiKeySet"`
-				JackettApiKeySet  bool `json:"jackettApiKeySet"`
-			}{snapshot, snapshot.ProwlarrApiKey != "", snapshot.JackettApiKey != ""}
-			resp.ProwlarrApiKey = ""
-			resp.JackettApiKey = ""
-			respondWithJSON(w, http.StatusOK, resp)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	http.HandleFunc("/api/v1/settings", settingsHandler)
 	http.HandleFunc("/api/v1/settings/proxy", saveProxySettingsHandler)
 	http.HandleFunc("/api/v1/settings/prowlarr", saveProwlarrSettingsHandler)
 	http.HandleFunc("/api/v1/settings/jackett", saveJackettSettingsHandler)
@@ -561,8 +542,18 @@ func main() {
 
 	go cleanupSessions()
 
-	addr := fmt.Sprintf(":%d", serverPort)
+	host := os.Getenv("BITPLAY_LISTEN_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if err := validateListenHost(host, os.Getenv("BITPLAY_AUTH_USERNAME"), os.Getenv("BITPLAY_AUTH_PASSWORD"), os.Getenv("BITPLAY_ALLOW_UNAUTHENTICATED_LAN") == "1"); err != nil {
+		log.Fatal(err)
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(serverPort))
 	log.Printf("Attempting to start server on %s", addr)
+	if os.Getenv("BITPLAY_ALLOW_UNAUTHENTICATED_LAN") == "1" {
+		log.Println("WARNING: unauthenticated LAN access explicitly permitted; do not expose to the internet")
+	}
 
 	// Create channel to signal if server started successfully
 	serverStarted := make(chan bool, 1)
@@ -571,6 +562,7 @@ func main() {
 	server := &http.Server{
 		Addr: addr,
 		Handler: basicAuthMiddleware(http.DefaultServeMux),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Start the server in a goroutine
@@ -641,69 +633,30 @@ func addTorrentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	magnet := html.UnescapeString(request.Magnet)
+	magnet := strings.TrimSpace(html.UnescapeString(request.Magnet))
 	if magnet == "" {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "No magnet link provided"})
-	}
-
-	// handle http links like Prowlarr or Jackett
-	if strings.HasPrefix(request.Magnet, "http") {
-		// Use the client that bypasses proxy for Prowlarr
-		httpClient := createSelectiveProxyClient()
-
-		httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-
-		// Make the HTTP request to follow the Prowlarr link
-		req, err := http.NewRequest("GET", request.Magnet, nil)
-		if err != nil {
-			log.Printf("Error creating request: %v", err)
-			respondWithJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "Invalid URL: " + err.Error(),
-			})
-			return
-		}
-
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-
-		// Follow the Prowlarr link
-		log.Printf("Following Prowlarr URL: %s", request.Magnet)
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			log.Printf("Error following URL: %v", err)
-			respondWithJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "Failed to download: " + err.Error(),
-			})
-			return
-		}
-		defer resp.Body.Close()
-
-		log.Printf("Got response: %d %s", resp.StatusCode, resp.Status)
-
-		// Check for redirects to magnet links
-		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			location := resp.Header.Get("Location")
-			log.Printf("Found redirect to: %s", location)
-
-			if strings.HasPrefix(location, "magnet:") {
-				log.Printf("Found magnet redirect: %s", location)
-				magnet = location
-			} else {
-				log.Printf("Non-magnet redirect: %s", location)
-				respondWithJSON(w, http.StatusBadRequest, map[string]string{
-					"error": "URL redirects to non-magnet content",
-				})
-				return
-			}
-		}
-	}
-
-	// check if magnet link is valid
-	if magnet == "" || !strings.HasPrefix(magnet, "magnet:") {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid magnet link"})
 		return
 	}
+
+	// Only enabled, configured indexer origins can supply torrent metadata.
+	if strings.HasPrefix(magnet, "http://") || strings.HasPrefix(magnet, "https://") {
+		settingsMutex.RLock()
+		snapshot := currentSettings
+		settingsMutex.RUnlock()
+		resolved, err := fetchIndexerMagnet(r.Context(), magnet, snapshot, createSelectiveProxyClient())
+		if err != nil {
+			respondWithJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "Torrent URL is not an allowed or reachable indexer download"})
+			return
+		}
+		magnet = resolved
+	}
+	normalized, err := normalizeMagnetInput(magnet)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid magnet link or infohash"})
+		return
+	}
+	magnet = normalized
 
 	// Reuse a live session for the same infohash instead of spinning up a
 	// second client and re-fetching metadata
@@ -1956,10 +1909,16 @@ func convertTorrentToMagnetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form with 10MB memory limit
-	const maxUploadSize = 10 << 20 // 10MB
+	// Bound the entire multipart request, not merely memory buffering.
+	const maxUploadSize = 10 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to parse form: " + err.Error()})
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			respondWithJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "Torrent metadata request exceeds 10 MB"})
+			return
+		}
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to parse multipart form"})
 		return
 	}
 
@@ -1973,7 +1932,7 @@ func convertTorrentToMagnetHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Check file size
 	if header.Size > maxUploadSize {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "File too large"})
+		respondWithJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "File too large"})
 		return
 	}
 
