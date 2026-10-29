@@ -20,7 +20,7 @@ permissions:
 jobs:
   validate:
     name: Go, security tests, and frontend
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
