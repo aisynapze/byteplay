@@ -794,11 +794,7 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 		reader := source.Open(r.Context())
 		// ServeContent will close the reader when done but we need to
 		// ensure it gets closed if there's a panic or other error
-		defer func() {
-			if closer, ok := reader.(io.Closer); ok {
-				closer.Close()
-			}
-		}()
+		defer reader.Close()
 		http.ServeContent(w, r, fileName, time.Time{}, reader)
 		progress := reader.Progress()
 		if progress.FirstByteLatencyMillis != nil {
@@ -812,8 +808,8 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 	var files []map[string]interface{}
 	for i, file := range session.Torrent.Files() {
 		files = append(files, map[string]interface{}{
-			"index": i,
-			"name":  file.DisplayPath(),
+			"index":          i,
+			"name":           file.DisplayPath(),
 			"size":           file.Length(),
 			"bytesCompleted": file.BytesCompleted(),
 		})

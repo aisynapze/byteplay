@@ -19,14 +19,14 @@ func TestMediaSourceRequiresMetadata(t *testing.T) {
 type syntheticReader struct {
 	*bytes.Reader
 	readahead int64
-	ctx context.Context
+	ctx       context.Context
 }
 
-func (reader *syntheticReader) Close() error { return nil }
-func (reader *syntheticReader) SetContext(ctx context.Context) { reader.ctx = ctx }
-func (reader *syntheticReader) SetReadahead(n int64) { reader.readahead = n }
+func (reader *syntheticReader) Close() error                           { return nil }
+func (reader *syntheticReader) SetContext(ctx context.Context)         { reader.ctx = ctx }
+func (reader *syntheticReader) SetReadahead(n int64)                   { reader.readahead = n }
 func (reader *syntheticReader) SetReadaheadFunc(torrent.ReadaheadFunc) {}
-func (reader *syntheticReader) SetResponsive() {}
+func (reader *syntheticReader) SetResponsive()                         {}
 func (reader *syntheticReader) ReadContext(ctx context.Context, p []byte) (int, error) {
 	return reader.Read(p)
 }
@@ -34,7 +34,7 @@ func (reader *syntheticReader) ReadContext(ctx context.Context, p []byte) (int, 
 func TestMediaReaderCountsDeliveredBytesAndFirstByte(t *testing.T) {
 	inner := &syntheticReader{Reader: bytes.NewReader([]byte("abcdef"))}
 	reader := &MediaReader{
-		Reader: inner,
+		Reader:    inner,
 		startedAt: time.Now().Add(-20 * time.Millisecond),
 	}
 	if reader.bytesServed.Load() != 0 || reader.firstByteUnixNano.Load() != 0 {
