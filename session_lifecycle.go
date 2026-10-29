@@ -25,6 +25,7 @@ type sessionAddError struct {
 	status  int
 	message string
 }
+
 func (e *sessionAddError) Error() string { return e.message }
 
 var errSessionUnavailable = &sessionAddError{http.StatusServiceUnavailable, "Torrent session unavailable"}
@@ -97,26 +98,44 @@ func retainTorrentSession(id string, touch bool) (*TorrentSession, bool) {
 	sessionRegistryMu.Lock()
 	defer sessionRegistryMu.Unlock()
 	value, ok := sessions.Load(id)
-	if !ok { return nil, false }
+	if !ok {
+		return nil, false
+	}
 	session := value.(*TorrentSession)
 	session.lifecycleMu.Lock()
 	defer session.lifecycleMu.Unlock()
-	if session.closing { return nil, false }
+	if session.closing {
+		return nil, false
+	}
 	session.active++
-	if touch { session.LastUsed = time.Now() }
+	if touch {
+		session.LastUsed = time.Now()
+	}
 	return session, true
 }
 func releaseTorrentSession(session *TorrentSession) {
 	session.lifecycleMu.Lock()
-	if session.active > 0 { session.active-- }
-	if session.active == 0 { session.LastUsed = time.Now() }
+	if session.active > 0 {
+		session.active--
+	}
+	if session.active == 0 {
+		session.LastUsed = time.Now()
+	}
 	session.lifecycleMu.Unlock()
 }
 func closeTorrentClient(session *TorrentSession) {
-	if session == nil { return }
-	if session.Torrent != nil { session.Torrent.Drop() }
-	if session.Client != nil { session.Client.Close() }
-	if session.Port > 0 { releasePort(session.Port) }
+	if session == nil {
+		return
+	}
+	if session.Torrent != nil {
+		session.Torrent.Drop()
+	}
+	if session.Client != nil {
+		session.Client.Close()
+	}
+	if session.Port > 0 {
+		releasePort(session.Port)
+	}
 }
 func reapInactiveSessions(now time.Time, ttl time.Duration) {
 	var retired []*TorrentSession
@@ -133,23 +152,31 @@ func reapInactiveSessions(now time.Time, ttl time.Duration) {
 		return true
 	})
 	sessionRegistryMu.Unlock()
-	for _, session := range retired { closeTorrentClient(session) }
+	for _, session := range retired {
+		closeTorrentClient(session)
+	}
 }
 
 // Preserve all active cache data if any operation cannot be drained safely.
 func drainIdleSessionRegistry() ([]*TorrentSession, bool) {
 	sessionRegistryMu.Lock()
 	defer sessionRegistryMu.Unlock()
-	if sessionPurgeInProgress || len(sessionFlights) != 0 { return nil, false }
+	if sessionPurgeInProgress || len(sessionFlights) != 0 {
+		return nil, false
+	}
 	busy := false
 	sessions.Range(func(_, value interface{}) bool {
 		session := value.(*TorrentSession)
 		session.lifecycleMu.Lock()
-		if session.active > 0 || session.closing { busy = true }
+		if session.active > 0 || session.closing {
+			busy = true
+		}
 		session.lifecycleMu.Unlock()
 		return !busy
 	})
-	if busy { return nil, false }
+	if busy {
+		return nil, false
+	}
 	sessionPurgeInProgress = true
 	sessionEpoch++
 	var retired []*TorrentSession

@@ -41,15 +41,15 @@ var (
 )
 
 type TorrentSession struct {
-	Client        *torrent.Client
-	Torrent       *torrent.Torrent
-	Port          int
-	LastUsed      time.Time // guarded by lifecycleMu
-	lifecycleMu   sync.Mutex
-	active        int
-	closing       bool
-	ProbeMu       sync.Mutex
-	ProbeCache    map[int]*ProbeResult
+	Client      *torrent.Client
+	Torrent     *torrent.Torrent
+	Port        int
+	LastUsed    time.Time // guarded by lifecycleMu
+	lifecycleMu sync.Mutex
+	active      int
+	closing     bool
+	ProbeMu     sync.Mutex
+	ProbeCache  map[int]*ProbeResult
 }
 
 type ProbeStream struct {
@@ -679,7 +679,6 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract sessionId and possibly fileIndex from the URL
 	parts := strings.Split(r.URL.Path, "/")
 
-
 	// The URL structure is /api/v1/torrent/[sessionId]/...
 	if len(parts) < 5 { // Changed from 4 to 5
 		log.Printf("Invalid path: not enough parts")
@@ -689,7 +688,6 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 
 	// The session ID is at position 4, not 3 (because array is 0-indexed and path starts with /)
 	sessionID := parts[4] // Changed from parts[3] to parts[4]
-
 
 	// Acquire and retain atomically with cleanup; a live request cannot be reaped.
 	session, ok := retainTorrentSession(sessionID, true)
@@ -1016,7 +1014,6 @@ func handleRemux(w http.ResponseWriter, r *http.Request, session *TorrentSession
 		respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Too many active streams - try again shortly"})
 		return
 	}
-
 
 	videoCodec := ""
 	session.ProbeMu.Lock()

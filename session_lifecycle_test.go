@@ -56,8 +56,12 @@ func TestConcurrentInfohashAddsCreateOneSession(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
-	if len(errs) != 0 { t.Fatalf("concurrent adds failed: %v", errs) }
-	if got := made.Load(); got != 1 { t.Fatalf("built %d torrent clients, want 1", got) }
+	if len(errs) != 0 {
+		t.Fatalf("concurrent adds failed: %v", errs)
+	}
+	if got := made.Load(); got != 1 {
+		t.Fatalf("built %d torrent clients, want 1", got)
+	}
 }
 
 func TestConcurrentFailedInfohashAddsCanRetry(t *testing.T) {
@@ -68,12 +72,16 @@ func TestConcurrentFailedInfohashAddsCanRetry(t *testing.T) {
 		n.Add(1)
 		return nil, boom
 	})
-	if !errors.Is(err, boom) { t.Fatalf("first failure=%v", err) }
+	if !errors.Is(err, boom) {
+		t.Fatalf("first failure=%v", err)
+	}
 	s, err := getOrCreateTorrentSession(context.Background(), "bad", func(context.Context) (*TorrentSession, error) {
 		n.Add(1)
 		return &TorrentSession{}, nil
 	})
-	if err != nil || s == nil || n.Load() != 2 { t.Fatalf("retry: session=%v error=%v count=%d", s, err, n.Load()) }
+	if err != nil || s == nil || n.Load() != 2 {
+		t.Fatalf("retry: session=%v error=%v count=%d", s, err, n.Load())
+	}
 }
 
 func TestRetainedSessionCannotBeReaped(t *testing.T) {
@@ -82,12 +90,18 @@ func TestRetainedSessionCannotBeReaped(t *testing.T) {
 	s := &TorrentSession{LastUsed: time.Now().Add(-time.Hour)}
 	sessions.Store(id, s)
 	ref, ok := retainTorrentSession(id, false)
-	if !ok || ref != s { t.Fatal("failed to retain") }
+	if !ok || ref != s {
+		t.Fatal("failed to retain")
+	}
 	reapInactiveSessions(time.Now(), 15*time.Minute)
-	if _, ok := sessions.Load(id); !ok { t.Fatal("retired active request") }
+	if _, ok := sessions.Load(id); !ok {
+		t.Fatal("retired active request")
+	}
 	releaseTorrentSession(ref)
 	reapInactiveSessions(time.Now().Add(16*time.Minute), 15*time.Minute)
-	if _, ok := sessions.Load(id); ok { t.Fatal("idle session was not retired") }
+	if _, ok := sessions.Load(id); ok {
+		t.Fatal("idle session was not retired")
+	}
 }
 
 func TestPurgeRejectsActiveSessionWithoutPartialRemoval(t *testing.T) {
@@ -95,10 +109,16 @@ func TestPurgeRejectsActiveSessionWithoutPartialRemoval(t *testing.T) {
 	id := "active"
 	sessions.Store(id, &TorrentSession{LastUsed: time.Now()})
 	s, ok := retainTorrentSession(id, true)
-	if !ok { t.Fatal("failed to retain") }
+	if !ok {
+		t.Fatal("failed to retain")
+	}
 	w := httptest.NewRecorder()
 	purgeCacheHandler(w, httptest.NewRequest(http.MethodPost, "/api/v1/cache/purge", nil))
-	if w.Code != http.StatusConflict { t.Fatalf("purge HTTP %d: %s", w.Code, w.Body.String()) }
-	if _, ok := sessions.Load(id); !ok { t.Fatal("active session removed by purge") }
+	if w.Code != http.StatusConflict {
+		t.Fatalf("purge HTTP %d: %s", w.Code, w.Body.String())
+	}
+	if _, ok := sessions.Load(id); !ok {
+		t.Fatal("active session removed by purge")
+	}
 	releaseTorrentSession(s)
 }
