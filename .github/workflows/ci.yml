@@ -33,7 +33,7 @@ jobs:
           cache: true
       - name: Diagnose Go formatting
         run: |
-          gofmt -d security.go main_test.go main.go session_lifecycle.go session_lifecycle_test.go server_lifecycle.go server_lifecycle_test.go
+          gofmt -d security.go main_test.go main.go session_lifecycle.go session_lifecycle_test.go server_lifecycle.go server_lifecycle_test.go media_source.go media_source_test.go media_source_integration_test.go
       - name: Compile
         run: go build ./...
       - name: Verify downloaded Go modules
@@ -57,7 +57,7 @@ jobs:
           npm run build
       - name: Go formatting gate
         run: |
-          test -z "$(gofmt -l security.go main_test.go main.go session_lifecycle.go session_lifecycle_test.go server_lifecycle.go server_lifecycle_test.go)"
+          test -z "$(gofmt -l security.go main_test.go main.go session_lifecycle.go session_lifecycle_test.go server_lifecycle.go server_lifecycle_test.go media_source.go media_source_test.go media_source_integration_test.go)"
       - name: Install FFmpeg and FFprobe
         run: |
           sudo apt-get update -qq
@@ -69,3 +69,34 @@ jobs:
           ffmpeg -hide_banner -encoders | grep -E '[[:space:]]libx264[[:space:]]'
           ffmpeg -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]'
           ffprobe -version
+
+  media-source:
+    name: Local seeded media source (20/100 Mbps)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: -mod=readonly
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: true
+      - name: Generate 60-second synthetic H264/AAC media and sparse padding
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          mkdir -p "$RUNNER_TEMP/byteplay-seed"
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i 'testsrc2=size=640x360:rate=24' \
+            -f lavfi -i 'sine=frequency=440:sample_rate=48000' \
+            -t 60 -c:v libx264 -preset ultrafast -crf 32 \
+            -pix_fmt yuv420p -c:a aac -b:a 96k \
+            -movflags +faststart "$RUNNER_TEMP/byteplay-seed/clip.mp4"
+          truncate -s 67108864 "$RUNNER_TEMP/byteplay-seed/padding.bin"
+          test -s "$RUNNER_TEMP/byteplay-seed/clip.mp4"
+      - name: Range and partial-download integration, loopback peers only
+        env:
+          BYTEPLAY_TEST_FIXTURE_ROOT: ${{ runner.temp }}/byteplay-seed
+        run: |
+          go test -tags=integration -run '^TestSeededMediaSourceRangeBeforeFullDownload$' -count=1 -timeout=120s -v .
