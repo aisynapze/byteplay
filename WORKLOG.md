@@ -46,3 +46,10 @@
 - Keep M2 **PARTIAL**, do not mark BP-001..BP-012 fully accepted.
 
 - M2 P1-03/P1-06 follow-on: added session-owned context for Reader.SetContext, FFprobe and FFmpeg; purge cancels and waits up to 10s, retains cache on timeout. In-flight metadata fetch returns 409. Pending runtime CI and seeded-media evidence.
+
+## GitHub-hosted CI evidence — M2 cancellation, 2026-10-29
+
+- [Actions #40958991450](https://github.com/aisynapze/byteplay/actions/runs/40958991450) on commit `2667a4688abf15223af23b954baa520d0c31fd4d`: **completed SUCCESS**.
+- Passed Go 1.26.6 compilation, gofmt, `go mod verify`, `go vet ./...`, `go test ./...`, `go test -race ./...`, JavaScript syntax, npm CSS build and FFmpeg/FFprobe encoder checks.
+- Implemented: P1-01 synchronized LastUsed and retained handlers; P1-02 in-flight deduplication; P1-03 session-owned reader/probe/remux contexts; P1-06 cancel+drain before cache deletion with bounded 409-preserve behavior; P1-07 signal-triggered, bounded HTTP shutdown.
+- Still NOT certified: an actual seeded torrent/FFmpeg cancellation integration run, cancellation of in-flight metadata fetches (currently 409), failure-injection for settings writes, and complete P1-08 status/code matrix. M2 remains PARTIAL, M3–M8 remain OPEN.

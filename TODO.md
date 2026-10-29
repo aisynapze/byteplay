@@ -4,7 +4,7 @@ Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41` — main identical a
 
 - [ ] M0 — baseline and tests: NOT VERIFIED
 - [ ] M1 — Phase 0 security: NOT VERIFIED
-- [ ] M2 — Phase 1 session ownership: PARTIAL (in-flight dedup, retention, race and HTTP shutdown checks green; media cancel/drain pending)
+- [ ] M2 — Phase 1 session ownership: PARTIAL (infohash dedup/retention, owned reader cancellation, bounded purge/drain, graceful HTTP shutdown all unit/race CI-green; real seeded media and full acceptance pending)
 - [ ] M3 — sequential torrent source: NOT VERIFIED
 - [ ] M4 — probe and route: NOT VERIFIED
 - [ ] M5 — HLS generation: NOT VERIFIED
