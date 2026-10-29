@@ -190,3 +190,21 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## v0.1.1 security migration (implementation branch)
+
+This branch is NOT a certified v0.1.1 release. HLS/media/browser checks and Phase 0/1 repairs are incomplete.
+
+The Go binary defaults to BITPLAY_LISTEN_HOST=127.0.0.1. For non-loopback listeners, including Docker-published ports, set BOTH BITPLAY_AUTH_USERNAME and BITPLAY_AUTH_PASSWORD. Missing credentials prevent network-wide startup. BITPLAY_ALLOW_UNAUTHENTICATED_LAN=1 is a deliberate operator-controlled LAN-only escape hatch and is never suitable for public exposure.
+
+Authenticated Docker usage (inject secrets through your environment, never commit them):
+
+    docker run --rm -p 3347:3347 \
+      -e BITPLAY_LISTEN_HOST=0.0.0.0 \
+      -e BITPLAY_AUTH_USERNAME="$BYTEPLAY_USER" \
+      -e BITPLAY_AUTH_PASSWORD="$BYTEPLAY_PASSWORD" \
+      ghcr.io/aisynapze/byteplay:latest
+
+Proxy warning: SOCKS5 configuration is BEST EFFORT and does not prove anonymity or all-peer/tracker egress isolation. Use a network-namespace VPN such as Gluetun if fail-closed network isolation is required. Do not expose torrent or configuration endpoints without authentication.
+
+See TODO.md, WORKLOG.md, DECISIONS.md, and docs/evidence/ for the actual milestone and test status.
