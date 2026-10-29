@@ -6,3 +6,5 @@
 4. Create fresh immutable HTTP transports; do not claim SOCKS5 proves anonymity or total peer/tracker isolation.
 5. Use npm with existing package-lock.json, not the contradictory pnpm packageManager entry.
 6. Work on isolated branch; no merge before required tests and media certification.
+
+7. Runner policy updated by owner (2026-10-29): use GitHub-hosted `ubuntu-latest` for these quality checks now; consider self-hosted runners later if needed. This supersedes the earlier self-hosted-only constraint for current checks.
