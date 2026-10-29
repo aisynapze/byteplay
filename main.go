@@ -24,7 +24,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"net/url"
@@ -45,8 +44,10 @@ type TorrentSession struct {
 	Client        *torrent.Client
 	Torrent       *torrent.Torrent
 	Port          int
-	LastUsed      time.Time
-	ActiveStreams int32
+	LastUsed      time.Time // guarded by lifecycleMu
+	lifecycleMu   sync.Mutex
+	active        int
+	closing       bool
 	ProbeMu       sync.Mutex
 	ProbeCache    map[int]*ProbeResult
 }
@@ -620,80 +621,64 @@ func addTorrentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	magnet = normalized
 
-	// Reuse a live session for the same infohash instead of spinning up a
-	// second client and re-fetching metadata
-	if m, err := metainfo.ParseMagnetUri(magnet); err == nil {
-		if existing, ok := sessions.Load(m.InfoHash.HexString()); ok {
-			session := existing.(*TorrentSession)
-			session.LastUsed = time.Now()
-			log.Printf("Reusing session: %s", m.InfoHash.HexString())
-			respondWithJSON(w, http.StatusOK, map[string]string{"sessionId": m.InfoHash.HexString()})
-			return
-		}
-	}
-
-	// Use the simpler, more secure proxy configuration
-	client, port, err := initTorrentWithProxy()
+	parsed, err := metainfo.ParseMagnetUri(magnet)
 	if err != nil {
-		log.Printf("Client creation error: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError,
-			map[string]string{"error": "Failed to create client with proxy"})
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid magnet link"})
 		return
 	}
-
-	// if we bail out before session‑storage, make sure to release both client & port
-	defer func() {
-		if client != nil {
-			releasePort(port)
-			client.Close()
+	sessionID := parsed.InfoHash.HexString()
+	_, err = getOrCreateTorrentSession(r.Context(), sessionID, func(ctx context.Context) (*TorrentSession, error) {
+		client, port, err := initTorrentWithProxy()
+		if err != nil {
+			return nil, &sessionAddError{http.StatusInternalServerError, "Failed to initialize torrent client"}
 		}
-	}()
-
-	t, err := client.AddMagnet(magnet)
-	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid magnet url"})
-		return
-	}
-	log.Printf("Torrent added: %s", t.InfoHash().HexString())
-
-	select {
-	case <-t.GotInfo():
-		log.Printf("Successfully got torrent info for %s", t.InfoHash().HexString())
-	case <-time.After(3 * time.Minute):
-		respondWithJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "Timeout getting info - proxy might be blocking BitTorrent traffic"})
-		return
-	}
-
-	sessionID := t.InfoHash().HexString()
-	log.Printf("Creating new session with ID: %s", sessionID)
-	sessions.Store(sessionID, &TorrentSession{
-		Client:     client,
-		Torrent:    t,
-		Port:       port,
-		LastUsed:   time.Now(),
-		ProbeCache: map[int]*ProbeResult{},
+		defer func() {
+			if client != nil {
+				releasePort(port)
+				client.Close()
+			}
+		}()
+		t, err := client.AddMagnet(magnet)
+		if err != nil {
+			return nil, &sessionAddError{http.StatusBadRequest, "Invalid magnet link"}
+		}
+		timer := time.NewTimer(3 * time.Minute)
+		defer timer.Stop()
+		select {
+		case <-t.GotInfo():
+		case <-ctx.Done():
+			return nil, &sessionAddError{http.StatusRequestTimeout, "Torrent request cancelled"}
+		case <-timer.C:
+			return nil, &sessionAddError{http.StatusGatewayTimeout, "Timeout fetching torrent metadata"}
+		}
+		created := &TorrentSession{
+			Client:     client,
+			Torrent:    t,
+			Port:       port,
+			LastUsed:   time.Now(),
+			ProbeCache: map[int]*ProbeResult{},
+		}
+		client = nil // the registry now owns this client
+		return created, nil
 	})
-
-	// Log successful storage
-	log.Printf("Successfully stored session: %s", sessionID)
-
-	// Set client to nil so it doesn't get closed by the defer function
-	// since it's now stored in the sessions map
-	client = nil
-
+	if err != nil {
+		var addErr *sessionAddError
+		if errors.As(err, &addErr) {
+			respondWithJSON(w, addErr.status, map[string]string{"error": addErr.message})
+		} else {
+			respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Torrent session unavailable"})
+		}
+		return
+	}
 	respondWithJSON(w, http.StatusOK, map[string]string{"sessionId": sessionID})
 }
 
 // Torrent handler to serve torrent files and stream content
 func torrentHandler(w http.ResponseWriter, r *http.Request) {
-	// Log the entire URL path for debugging
-	log.Printf("Torrent handler called with path: %s", r.URL.Path)
 
 	// Extract sessionId and possibly fileIndex from the URL
 	parts := strings.Split(r.URL.Path, "/")
 
-	// Debug the path parts
-	log.Printf("Path parts: %v (length: %d)", parts, len(parts))
 
 	// The URL structure is /api/v1/torrent/[sessionId]/...
 	if len(parts) < 5 { // Changed from 4 to 5
@@ -705,34 +690,14 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 	// The session ID is at position 4, not 3 (because array is 0-indexed and path starts with /)
 	sessionID := parts[4] // Changed from parts[3] to parts[4]
 
-	log.Printf("Looking for session with ID: %s", sessionID)
 
-	// Debug: Print all sessions that we have
-	var sessionKeys []string
-	sessions.Range(func(key, value interface{}) bool {
-		keyStr, ok := key.(string)
-		if ok {
-			sessionKeys = append(sessionKeys, keyStr)
-		}
-		return true
-	})
-	log.Printf("Available sessions: %v", sessionKeys)
-
-	// Get the torrent session from our sessions map
-	sessionValue, ok := sessions.Load(sessionID)
+	// Acquire and retain atomically with cleanup; a live request cannot be reaped.
+	session, ok := retainTorrentSession(sessionID, true)
 	if !ok {
-		log.Printf("Session not found with ID: %s", sessionID)
-		respondWithJSON(w, http.StatusNotFound, map[string]string{
-			"error":              "Session not found",
-			"id":                 sessionID,
-			"available_sessions": strings.Join(sessionKeys, ", "),
-		})
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
 		return
 	}
-
-	log.Printf("Found session with ID: %s", sessionID)
-	session := sessionValue.(*TorrentSession)
-	session.LastUsed = time.Now() // Update last used time
+	defer releaseTorrentSession(session)
 
 	// Files() panics if metadata never arrived
 	if session.Torrent.Info() == nil {
@@ -835,9 +800,6 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 				closer.Close()
 			}
 		}()
-		// keep the session off the idle GC while this response is open
-		atomic.AddInt32(&session.ActiveStreams, 1)
-		defer atomic.AddInt32(&session.ActiveStreams, -1)
 		http.ServeContent(w, r, fileName, time.Time{}, reader)
 		return
 	}
@@ -896,28 +858,13 @@ func respondWithJSON(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
-// Update cleanupSessions with safer reflection
+// Retire only sessions that have been idle for the complete TTL and have no
+// retained requests. The registry lock prevents a concurrent retain/close race.
 func cleanupSessions() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-
 	for range ticker.C {
-		log.Printf("Checking for unused sessions...")
-		sessions.Range(func(key, value interface{}) bool {
-			session := value.(*TorrentSession)
-
-			// never reap a session with an open stream response
-			if atomic.LoadInt32(&session.ActiveStreams) > 0 {
-				session.LastUsed = time.Now()
-				return true
-			}
-
-			if time.Since(session.LastUsed) > 15*time.Minute {
-				teardownSession(key, session)
-				log.Printf("Removed unused session: %s", key)
-			}
-			return true
-		})
+		reapInactiveSessions(time.Now(), 15*time.Minute)
 		runtime.GC()
 	}
 }
@@ -1070,8 +1017,6 @@ func handleRemux(w http.ResponseWriter, r *http.Request, session *TorrentSession
 		return
 	}
 
-	atomic.AddInt32(&session.ActiveStreams, 1)
-	defer atomic.AddInt32(&session.ActiveStreams, -1)
 
 	videoCodec := ""
 	session.ProbeMu.Lock()
@@ -1134,17 +1079,6 @@ func handleRemux(w http.ResponseWriter, r *http.Request, session *TorrentSession
 	}
 }
 
-func teardownSession(key interface{}, session *TorrentSession) {
-	releasePort(session.Port)
-	if session.Torrent != nil {
-		session.Torrent.Drop()
-	}
-	if session.Client != nil {
-		session.Client.Close()
-	}
-	sessions.Delete(key)
-}
-
 func logsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1161,13 +1095,14 @@ func sessionsHandler(w http.ResponseWriter, r *http.Request) {
 
 	list := []map[string]interface{}{}
 	sessions.Range(func(key, value interface{}) bool {
-		session := value.(*TorrentSession)
+		id := key.(string)
+		session, ok := retainTorrentSession(id, false)
+		if !ok {
+			return true
+		}
 		entry := map[string]interface{}{
-			"id":       key,
-			"name":     "(fetching metadata)",
-			"size":     int64(0),
-			"complete": int64(0),
-			"peers":    0,
+			"id": id, "name": "(fetching metadata)",
+			"size": int64(0), "complete": int64(0), "peers": 0,
 		}
 		if t := session.Torrent; t != nil && t.Info() != nil {
 			stats := t.Stats()
@@ -1176,6 +1111,7 @@ func sessionsHandler(w http.ResponseWriter, r *http.Request) {
 			entry["complete"] = t.BytesCompleted()
 			entry["peers"] = stats.ActivePeers
 		}
+		releaseTorrentSession(session)
 		list = append(list, entry)
 		return true
 	})
@@ -1200,11 +1136,17 @@ func purgeCacheHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions.Range(func(key, value interface{}) bool {
-		teardownSession(key, value.(*TorrentSession))
-		log.Printf("Purged session: %s", key)
-		return true
-	})
+	// Never remove the backing files of active or in-flight torrent readers.
+	// For now an active stream is a 409, not an unsafe partial purge.
+	retired, ok := drainIdleSessionRegistry()
+	if !ok {
+		respondWithJSON(w, http.StatusConflict, map[string]string{"error": "Active torrent requests or additions must finish before cache purge"})
+		return
+	}
+	defer finishSessionPurge()
+	for _, session := range retired {
+		closeTorrentClient(session)
+	}
 
 	const dataDir = "./torrent-data"
 	freed := dirSize(dataDir)
