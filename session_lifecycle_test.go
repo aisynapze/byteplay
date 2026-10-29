@@ -108,7 +108,9 @@ func TestPurgeCancelsActiveReaderAndDrainsAfterRelease(t *testing.T) {
 	withEmptyRegistry(t)
 	sessions.Store("active", &TorrentSession{LastUsed: time.Now()})
 	s, ok := retainTorrentSession("active", true)
-	if !ok { t.Fatal("failed to retain") }
+	if !ok {
+		t.Fatal("failed to retain")
+	}
 	ctx, stop := sessionRequestContext(s, context.Background())
 	defer stop()
 	retired, drained, ok := beginCancellingSessionPurge()
@@ -118,9 +120,12 @@ func TestPurgeCancelsActiveReaderAndDrainsAfterRelease(t *testing.T) {
 	t.Cleanup(finishSessionPurge)
 	select {
 	case <-ctx.Done():
-	case <-time.After(time.Second): t.Fatal("reader context not cancelled")
+	case <-time.After(time.Second):
+		t.Fatal("reader context not cancelled")
 	}
-	if _, ok := retainTorrentSession("active", true); ok { t.Fatal("allowed retain after purge") }
+	if _, ok := retainTorrentSession("active", true); ok {
+		t.Fatal("allowed retain after purge")
+	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	if err := waitForDrainedSessions(waitCtx, drained); !errors.Is(err, context.DeadlineExceeded) {
@@ -130,7 +135,9 @@ func TestPurgeCancelsActiveReaderAndDrainsAfterRelease(t *testing.T) {
 	if err := waitForDrainedSessions(context.Background(), drained); err != nil {
 		t.Fatalf("purge did not drain after release: %v", err)
 	}
-	for _, session := range retired { closeTorrentClient(session) }
+	for _, session := range retired {
+		closeTorrentClient(session)
+	}
 }
 
 func TestPurgeRejectsInFlightAddition(t *testing.T) {
@@ -146,7 +153,11 @@ func TestPurgeRejectsInFlightAddition(t *testing.T) {
 		done <- err
 	}()
 	<-started
-	if _, _, ok := beginCancellingSessionPurge(); ok { t.Fatal("purge admitted while metadata fetch in flight") }
+	if _, _, ok := beginCancellingSessionPurge(); ok {
+		t.Fatal("purge admitted while metadata fetch in flight")
+	}
 	close(release)
-	if err := <-done; err != nil { t.Fatalf("addition failed: %v", err) }
+	if err := <-done; err != nil {
+		t.Fatalf("addition failed: %v", err)
+	}
 }

@@ -202,7 +202,6 @@ func finishSessionPurge() {
 	sessionRegistryMu.Unlock()
 }
 
-
 // All lifecycle helpers below hold lifecycleMu for state transitions.
 func (session *TorrentSession) ensureStopContextLocked() {
 	if session.stopCtx == nil {
