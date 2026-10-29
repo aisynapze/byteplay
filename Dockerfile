@@ -32,7 +32,9 @@ COPY --from=builder /app/main .
 # Copy client directory from builder
 COPY --from=builder /app/client ./client/
 
-# Expose the port your app runs on
+# Docker port publishing requires an authenticated non-loopback listener.
+# Startup refuses an unauthenticated network-wide bind.
+ENV BITPLAY_LISTEN_HOST=0.0.0.0
 EXPOSE 3347
 
 # Command to run the application
