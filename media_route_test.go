@@ -13,11 +13,11 @@ func TestChooseHLSRouteMatrix(t *testing.T) {
 	}
 	limits := HLSLimits{MaxInputWidth: 3840, MaxInputHeight: 2160}
 	tests := []struct {
-		name string
-		edit func(*MediaProfile)
-		mode HLSRouteMode
-		video string
-		audio string
+		name   string
+		edit   func(*MediaProfile)
+		mode   HLSRouteMode
+		video  string
+		audio  string
 		reject bool
 	}{
 		{"h264-aac-copy", func(*MediaProfile) {}, HLSRouteCopy, "copy", "copy", false},
