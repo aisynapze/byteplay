@@ -15,8 +15,8 @@ const ranges = {
 };
 test("absolute mapping is generation-start plus local time", () => {
   assert.equal(timeline.absoluteSeconds(120, 8.5), 128.5);
-  assert.throws(() => timeline.absoluteSeconds(-1, 3), RangeError);
-  assert.throws(() => timeline.absoluteSeconds(1, Infinity), RangeError);
+  assert.throws(() => timeline.absoluteSeconds(-1, 3), /finite nonnegative/);
+  assert.throws(() => timeline.absoluteSeconds(1, Infinity), /finite nonnegative/);
 });
 test("only locally buffered time uses Video.js seek", async () => {
   let videoSeconds = -1;
