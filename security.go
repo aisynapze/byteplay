@@ -154,3 +154,13 @@ func fetchIndexerMagnet(ctx context.Context, raw string, settings Settings, clie
 	}
 	return normalizeMagnetInput(magnet)
 }
+
+// Never accept the internal media token from a non-loopback TCP peer.
+func isLoopbackRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
