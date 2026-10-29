@@ -4,15 +4,12 @@ FROM golang:1.26-alpine AS builder
 # Set working directory for the build
 WORKDIR /app
 
-# Copy module files first to leverage Docker cache
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy all source files including client directory
+# Build only imported Go packages; avoid eager downloading the entire module graph.
+# BuildKit caches modules and compiled objects across source changes.
 COPY . .
-
-# Build the Go app with static linking
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o main .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -ldflags="-w -s" -o main .
 
 # Final stage
 FROM alpine:3.22
