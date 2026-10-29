@@ -499,7 +499,7 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, logBuffer))
 
 	checkFFmpeg()
-	activeHLS.ffmpeg=ffmpegPath
+	activeHLS.ffmpeg = ffmpegPath
 
 	// Set up endpoint handlers
 	http.HandleFunc("/api/v1/torrent/add", addTorrentHandler)
