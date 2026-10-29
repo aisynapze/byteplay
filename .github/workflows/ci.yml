@@ -50,7 +50,11 @@ jobs:
           node-version: "22"
           cache: npm
       - name: JavaScript syntax
-        run: node --check client/assets/index.js
+        run: |
+          node --check client/assets/index.js
+          node --check client/assets/player-timeline.js
+      - name: Absolute timeline adapter tests
+        run: node --test client/assets/player-timeline.test.mjs
       - name: CSS build
         run: |
           npm ci
