@@ -104,21 +104,49 @@ func TestRetainedSessionCannotBeReaped(t *testing.T) {
 	}
 }
 
-func TestPurgeRejectsActiveSessionWithoutPartialRemoval(t *testing.T) {
+func TestPurgeCancelsActiveReaderAndDrainsAfterRelease(t *testing.T) {
 	withEmptyRegistry(t)
-	id := "active"
-	sessions.Store(id, &TorrentSession{LastUsed: time.Now()})
-	s, ok := retainTorrentSession(id, true)
-	if !ok {
-		t.Fatal("failed to retain")
+	sessions.Store("active", &TorrentSession{LastUsed: time.Now()})
+	s, ok := retainTorrentSession("active", true)
+	if !ok { t.Fatal("failed to retain") }
+	ctx, stop := sessionRequestContext(s, context.Background())
+	defer stop()
+	retired, drained, ok := beginCancellingSessionPurge()
+	if !ok || len(retired) != 1 || len(drained) != 1 {
+		t.Fatalf("unexpected purge start: ok=%v count=%d", ok, len(retired))
 	}
-	w := httptest.NewRecorder()
-	purgeCacheHandler(w, httptest.NewRequest(http.MethodPost, "/api/v1/cache/purge", nil))
-	if w.Code != http.StatusConflict {
-		t.Fatalf("purge HTTP %d: %s", w.Code, w.Body.String())
+	t.Cleanup(finishSessionPurge)
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second): t.Fatal("reader context not cancelled")
 	}
-	if _, ok := sessions.Load(id); !ok {
-		t.Fatal("active session removed by purge")
+	if _, ok := retainTorrentSession("active", true); ok { t.Fatal("allowed retain after purge") }
+	waitCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := waitForDrainedSessions(waitCtx, drained); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("purge did not wait for active reader: %v", err)
 	}
 	releaseTorrentSession(s)
+	if err := waitForDrainedSessions(context.Background(), drained); err != nil {
+		t.Fatalf("purge did not drain after release: %v", err)
+	}
+	for _, session := range retired { closeTorrentClient(session) }
+}
+
+func TestPurgeRejectsInFlightAddition(t *testing.T) {
+	withEmptyRegistry(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := getOrCreateTorrentSession(context.Background(), "new", func(context.Context) (*TorrentSession, error) {
+			close(started)
+			<-release
+			return &TorrentSession{}, nil
+		})
+		done <- err
+	}()
+	<-started
+	if _, _, ok := beginCancellingSessionPurge(); ok { t.Fatal("purge admitted while metadata fetch in flight") }
+	close(release)
+	if err := <-done; err != nil { t.Fatalf("addition failed: %v", err) }
 }

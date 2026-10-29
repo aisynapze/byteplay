@@ -77,6 +77,7 @@ func getOrCreateTorrentSession(ctx context.Context, id string, build func(contex
 	if err == nil {
 		created.lifecycleMu.Lock()
 		created.LastUsed = time.Now()
+		created.ensureStopContextLocked()
 		created.lifecycleMu.Unlock()
 		sessions.Store(id, created)
 		flight.session = created
@@ -107,6 +108,7 @@ func retainTorrentSession(id string, touch bool) (*TorrentSession, bool) {
 	if session.closing {
 		return nil, false
 	}
+	session.ensureStopContextLocked()
 	session.active++
 	if touch {
 		session.LastUsed = time.Now()
@@ -120,6 +122,9 @@ func releaseTorrentSession(session *TorrentSession) {
 	}
 	if session.active == 0 {
 		session.LastUsed = time.Now()
+		if session.closing && session.drained != nil {
+			close(session.drained)
+		}
 	}
 	session.lifecycleMu.Unlock()
 }
@@ -144,7 +149,7 @@ func reapInactiveSessions(now time.Time, ttl time.Duration) {
 		session := value.(*TorrentSession)
 		session.lifecycleMu.Lock()
 		if !session.closing && session.active == 0 && now.Sub(session.LastUsed) >= ttl {
-			session.closing = true
+			session.markClosingLocked()
 			sessions.Delete(key)
 			retired = append(retired, session)
 		}
@@ -183,7 +188,7 @@ func drainIdleSessionRegistry() ([]*TorrentSession, bool) {
 	sessions.Range(func(key, value interface{}) bool {
 		session := value.(*TorrentSession)
 		session.lifecycleMu.Lock()
-		session.closing = true
+		session.markClosingLocked()
 		session.lifecycleMu.Unlock()
 		sessions.Delete(key)
 		retired = append(retired, session)
@@ -195,4 +200,71 @@ func finishSessionPurge() {
 	sessionRegistryMu.Lock()
 	sessionPurgeInProgress = false
 	sessionRegistryMu.Unlock()
+}
+
+
+// All lifecycle helpers below hold lifecycleMu for state transitions.
+func (session *TorrentSession) ensureStopContextLocked() {
+	if session.stopCtx == nil {
+		session.stopCtx, session.stopCancel = context.WithCancel(context.Background())
+	}
+}
+func (session *TorrentSession) markClosingLocked() <-chan struct{} {
+	session.ensureStopContextLocked()
+	if !session.closing {
+		session.closing = true
+		session.drained = make(chan struct{})
+		if session.active == 0 {
+			close(session.drained)
+		}
+		session.stopCancel()
+	}
+	return session.drained
+}
+
+// Joined request and torrent-session cancellation propagates to torrent
+// Reader.SetContext, FFprobe and exec.CommandContext FFmpeg workers.
+func sessionRequestContext(session *TorrentSession, parent context.Context) (context.Context, func()) {
+	session.lifecycleMu.Lock()
+	session.ensureStopContextLocked()
+	owner := session.stopCtx
+	session.lifecycleMu.Unlock()
+	ctx, cancel := context.WithCancel(parent)
+	unregister := context.AfterFunc(owner, cancel)
+	return ctx, func() {
+		unregister()
+		cancel()
+	}
+}
+func beginCancellingSessionPurge() ([]*TorrentSession, []<-chan struct{}, bool) {
+	sessionRegistryMu.Lock()
+	defer sessionRegistryMu.Unlock()
+	if sessionPurgeInProgress || len(sessionFlights) != 0 {
+		return nil, nil, false
+	}
+	sessionPurgeInProgress = true
+	sessionEpoch++
+	var retired []*TorrentSession
+	var drained []<-chan struct{}
+	sessions.Range(func(key, value interface{}) bool {
+		session := value.(*TorrentSession)
+		session.lifecycleMu.Lock()
+		done := session.markClosingLocked()
+		session.lifecycleMu.Unlock()
+		sessions.Delete(key)
+		retired = append(retired, session)
+		drained = append(drained, done)
+		return true
+	})
+	return retired, drained, true
+}
+func waitForDrainedSessions(ctx context.Context, channels []<-chan struct{}) error {
+	for _, done := range channels {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }

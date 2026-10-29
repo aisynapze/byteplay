@@ -50,6 +50,9 @@ type TorrentSession struct {
 	lifecycleMu sync.Mutex
 	active      int
 	closing     bool
+	stopCtx     context.Context
+	stopCancel  context.CancelFunc
+	drained     chan struct{}
 	ProbeMu     sync.Mutex
 	ProbeCache  map[int]*ProbeResult
 }
@@ -685,6 +688,9 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseTorrentSession(session)
+	ownedCtx, stopOwned := sessionRequestContext(session, r.Context())
+	defer stopOwned()
+	r = r.WithContext(ownedCtx)
 
 	// Files() panics if metadata never arrived
 	if session.Torrent.Info() == nil {
@@ -754,6 +760,7 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 
 				// Read the SRT file with size limit
 				reader := file.NewReader()
+				reader.SetContext(r.Context())
 				defer reader.Close()
 				// Wrap with limiting reader to prevent memory issues (10MB max)
 				limitReader := io.LimitReader(reader, 10*1024*1024) // 10MB limit for subtitles
@@ -780,6 +787,7 @@ func torrentHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Stream the file
 		reader := file.NewReader()
+		reader.SetContext(r.Context())
 		// ServeContent will close the reader when done but we need to
 		// ensure it gets closed if there's a panic or other error
 		defer func() {
@@ -1127,14 +1135,35 @@ func purgeCacheHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Never remove the backing files of active or in-flight torrent readers.
-	// For now an active stream is a 409, not an unsafe partial purge.
-	retired, ok := drainIdleSessionRegistry()
+	// Cancel owned media operations and wait for every retained reader.
+	// Never delete cached files beneath a live stream or FFmpeg child.
+	retired, drained, ok := beginCancellingSessionPurge()
 	if !ok {
-		respondWithJSON(w, http.StatusConflict, map[string]string{"error": "Active torrent requests or additions must finish before cache purge"})
+		respondWithJSON(w, http.StatusConflict, map[string]string{"error": "Torrent metadata fetch or another purge is active"})
 		return
 	}
-	defer finishSessionPurge()
+	finishOnReturn := true
+	defer func() {
+		if finishOnReturn {
+			finishSessionPurge()
+		}
+	}()
+	waitCtx, cancelWait := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancelWait()
+	if err := waitForDrainedSessions(waitCtx, drained); err != nil {
+		// Preserve cache. Hold the purge gate until all remaining readers
+		// release and the associated torrent clients can close safely.
+		finishOnReturn = false
+		go func() {
+			_ = waitForDrainedSessions(context.Background(), drained)
+			for _, session := range retired {
+				closeTorrentClient(session)
+			}
+			finishSessionPurge()
+		}()
+		respondWithJSON(w, http.StatusConflict, map[string]string{"error": "Torrent sessions still draining; cache preserved"})
+		return
+	}
 	for _, session := range retired {
 		closeTorrentClient(session)
 	}
