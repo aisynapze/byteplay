@@ -31,9 +31,9 @@ jobs:
         with:
           go-version: "1.26.6"
           cache: true
-      - name: Format new Go files
+      - name: Diagnose Go formatting
         run: |
-          test -z "$(gofmt -l security.go main_test.go)"
+          gofmt -d security.go main_test.go main.go
       - name: Compile
         run: go build ./...
       - name: Verify downloaded Go modules
@@ -55,6 +55,9 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Go formatting gate
+        run: |
+          test -z "$(gofmt -l security.go main_test.go main.go)"
       - name: FFmpeg availability
         run: |
           ffmpeg -hide_banner -encoders | grep libx264
