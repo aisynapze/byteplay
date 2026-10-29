@@ -43,7 +43,7 @@ func TestRawInfohashNormalization(t *testing.T) {
 func TestListenPolicy(t *testing.T) {
 	tests := []struct {
 		host, user, pass string
-		allow, ok bool
+		allow, ok       bool
 	}{
 		{"127.0.0.1", "", "", false, true},
 		{"::1", "", "", false, true},
