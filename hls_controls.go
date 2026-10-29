@@ -16,8 +16,8 @@ import (
 const maxHLSGenerations = 256
 
 type hlsSeekRequest struct {
-	Seconds *float64 `json:"seconds"`
-	AudioStream *int `json:"audioStream"`
+	Seconds     *float64 `json:"seconds"`
+	AudioStream *int     `json:"audioStream"`
 }
 type hlsControlRequest struct {
 	Action string `json:"action"`
@@ -167,7 +167,7 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	next := &hlsPlayback{
 		id: id, sessionID: current.sessionID, fileIndex: current.fileIndex,
-		selectedAudio: audio, generation: generation+1, startSeconds: *req.Seconds,
+		selectedAudio: audio, generation: generation + 1, startSeconds: *req.Seconds,
 		dir: dir, session: retained, source: source, ctx: ctx, cancel: cancel,
 		stopOwner: stopOwner, done: make(chan struct{}), state: "preparing",
 		paused: paused, lastDemand: time.Now(), progress: source.Progress(),

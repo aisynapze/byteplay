@@ -96,7 +96,7 @@ type hlsManager struct {
 
 func newHLSManager(root, ffmpeg string) *hlsManager {
 	return &hlsManager{root: root, ffmpeg: ffmpeg, jobs: make(map[string]*hlsPlayback),
-		pauseGrace: 90*time.Second, idleTimeout: 2*time.Minute,
+		pauseGrace: 90 * time.Second, idleTimeout: 2 * time.Minute,
 		processSlots: make(chan struct{}, 2), videoSlots: make(chan struct{}, 1)}
 }
 
@@ -116,7 +116,9 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	generation := j.generation
-	if generation == 0 { generation = 1 }
+	if generation == 0 {
+		generation = 1
+	}
 	s := hlsStatus{PlaybackID: j.id, State: j.state, Mode: j.mode, Generation: generation,
 		PlaylistReady: j.playlistReady, StatusURL: "/api/v1/hls/" + j.id + "/status",
 		DurationSeconds: j.duration, StartSeconds: j.startSeconds, SegmentsReady: j.segments,
@@ -284,7 +286,7 @@ func (m *hlsManager) run(job *hlsPlayback) {
 		Input:          loopbackStreamURL(job.sessionID, job.fileIndex),
 		Playlist:       filepath.Join(job.dir, "index.m3u8"),
 		SegmentPattern: filepath.Join(job.dir, "segment-%06d.ts"),
-		StartSeconds: job.startSeconds,
+		StartSeconds:   job.startSeconds,
 	}
 	args, err := BuildHLSFFmpegArgs(route, opts)
 	if err != nil {
@@ -423,7 +425,9 @@ func (m *hlsManager) serveMedia(w http.ResponseWriter, r *http.Request, job *hls
 	}
 	job.mu.Lock()
 	currentGeneration := job.generation
-	if currentGeneration == 0 {currentGeneration = 1}
+	if currentGeneration == 0 {
+		currentGeneration = 1
+	}
 	job.mu.Unlock()
 	if generation != strconv.Itoa(currentGeneration) {
 		writeHLSError(w, http.StatusGone, "generation_expired", "Playback generation is no longer available")
@@ -471,7 +475,9 @@ func (m *hlsManager) delete(w http.ResponseWriter, r *http.Request, id string) {
 	if job != nil {
 		job.cancel()
 		job.mu.Lock()
-		if job.pauseTimer!=nil {job.pauseTimer.Stop()}
+		if job.pauseTimer != nil {
+			job.pauseTimer.Stop()
+		}
 		job.mu.Unlock()
 		go func() {
 			<-job.done
@@ -490,7 +496,9 @@ func (m *hlsManager) stopAll(timeout time.Duration) {
 	m.mu.Unlock()
 	for _, j := range jobs {
 		j.mu.Lock()
-		if j.pauseTimer!=nil {j.pauseTimer.Stop()}
+		if j.pauseTimer != nil {
+			j.pauseTimer.Stop()
+		}
 		j.mu.Unlock()
 		j.cancel()
 	}
@@ -531,12 +539,22 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 2 && parts[1] == "seek" {
-		if r.Method!=http.MethodPost {w.Header().Set("Allow","POST");writeHLSError(w,405,"method_not_allowed","Use POST");return}
-		m.seek(w,r,parts[0]);return
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			writeHLSError(w, 405, "method_not_allowed", "Use POST")
+			return
+		}
+		m.seek(w, r, parts[0])
+		return
 	}
 	if len(parts) == 2 && parts[1] == "control" {
-		if r.Method!=http.MethodPost {w.Header().Set("Allow","POST");writeHLSError(w,405,"method_not_allowed","Use POST");return}
-		m.control(w,r,parts[0]);return
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			writeHLSError(w, 405, "method_not_allowed", "Use POST")
+			return
+		}
+		m.control(w, r, parts[0])
+		return
 	}
 	if len(parts) == 2 && parts[1] == "status" {
 		if r.Method != http.MethodGet {
