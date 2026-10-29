@@ -62,6 +62,10 @@ type ProbeStream struct {
 	Type     string `json:"type"`  // video | audio | subtitle
 	Codec    string `json:"codec"`
 	Profile  string `json:"profile,omitempty"`
+	PixelFormat string `json:"pixelFormat,omitempty"`
+	Width int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
+	FrameRate float64 `json:"frameRate,omitempty"`
 	Language string `json:"language,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Channels int    `json:"channels,omitempty"`
@@ -909,6 +913,10 @@ func runFFprobe(ctx context.Context, streamURL string) (*ProbeResult, error) {
 			CodecType   string            `json:"codec_type"`
 			CodecName   string            `json:"codec_name"`
 			Profile     string            `json:"profile"`
+			PixelFormat string `json:"pix_fmt"`
+			Width int `json:"width"`
+			Height int `json:"height"`
+			AvgFrameRate string `json:"avg_frame_rate"`
 			Channels    int               `json:"channels"`
 			Tags        map[string]string `json:"tags"`
 			Disposition struct {
@@ -928,6 +936,10 @@ func runFFprobe(ctx context.Context, streamURL string) (*ProbeResult, error) {
 			Type:     s.CodecType,
 			Codec:    s.CodecName,
 			Profile:  s.Profile,
+			PixelFormat: s.PixelFormat,
+			Width: s.Width,
+			Height: s.Height,
+			FrameRate: parseMediaFrameRate(s.AvgFrameRate),
 			Channels: s.Channels,
 			Default:  s.Disposition.Default == 1,
 		}
