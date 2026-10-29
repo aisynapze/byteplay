@@ -33,7 +33,7 @@ jobs:
           cache: true
       - name: Diagnose Go formatting
         run: |
-          gofmt -d security.go main_test.go main.go session_lifecycle.go session_lifecycle_test.go server_lifecycle.go server_lifecycle_test.go media_source.go media_source_test.go media_source_integration_test.go media_route.go media_route_test.go hls_args.go hls_args_test.go hls_args_integration_test.go hls_service.go hls_service_test.go
+          gofmt -d *.go
       - name: Compile
         run: go build ./...
       - name: Verify downloaded Go modules
@@ -57,7 +57,7 @@ jobs:
           npm run build
       - name: Go formatting gate
         run: |
-          test -z "$(gofmt -l security.go main_test.go main.go session_lifecycle.go session_lifecycle_test.go server_lifecycle.go server_lifecycle_test.go media_source.go media_source_test.go media_source_integration_test.go media_route.go media_route_test.go hls_args.go hls_args_test.go hls_args_integration_test.go hls_service.go hls_service_test.go)"
+          test -z "$(gofmt -l *.go)"
       - name: Install FFmpeg and FFprobe
         run: |
           sudo apt-get update -qq
@@ -103,5 +103,5 @@ jobs:
         env:
           BYTEPLAY_TEST_FIXTURE_ROOT: ${{ runner.temp }}/byteplay-seed
         run: |
-          go test -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix)" -count=1 -timeout=120s -v .
-          go test -race -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix)" -count=1 -timeout=120s -v .
+          go test -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion)" -count=1 -timeout=120s -v .
+          go test -race -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion)" -count=1 -timeout=120s -v .
