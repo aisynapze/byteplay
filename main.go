@@ -19,11 +19,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"net/url"
@@ -522,8 +524,6 @@ func main() {
 		http.ServeFile(w, r, "./client/favicon.ico")
 	})
 
-	go cleanupSessions()
-
 	host := os.Getenv("BITPLAY_LISTEN_HOST")
 	if host == "" {
 		host = "127.0.0.1"
@@ -537,44 +537,33 @@ func main() {
 		log.Println("WARNING: unauthenticated LAN access explicitly permitted; do not expose to the internet")
 	}
 
-	// Create channel to signal if server started successfully
-	serverStarted := make(chan bool, 1)
-
-	// Create a server with graceful shutdown
+	// Bind synchronously so startup failures are not mistaken for a live server.
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("Failed to bind %s: %v", addr, err)
+		return
+	}
 	server := &http.Server{
-		Addr:              addr,
 		Handler:           basicAuthMiddleware(http.DefaultServeMux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	// Start the server in a goroutine
-	go func() {
-		err := server.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			log.Printf("Server failed on %s: %v", addr, err)
-			serverStarted <- false
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go cleanupSessions(ctx)
+	log.Printf("BytePlay listening at %s", listener.Addr())
+	if err := serveWithShutdown(ctx, server, listener, 15*time.Second); err != nil {
+		log.Printf("HTTP shutdown: %v", err)
+	}
+	// Stop admitting work, then close all sessions that have drained. If any
+	// reader survived forced connection shutdown, retain its cache rather than
+	// deleting files under it.
+	if retired, ok := drainIdleSessionRegistry(); ok {
+		for _, session := range retired {
+			closeTorrentClient(session)
 		}
-	}()
-
-	// Give the server a moment to start or fail
-	select {
-	case success := <-serverStarted:
-		if !success {
-			log.Printf("Server failed to start on %s", addr)
-			return
-		}
-	case <-time.After(1 * time.Second):
-		// No immediate error, assume it started successfully
-		log.Printf("🚀 Server successfully started on %s", addr)
-
-		// Create a simple message to display in the browser
-		fmt.Printf("\n------------------------------------------------\n")
-		fmt.Printf("✅ Server started! Open in your browser:\n")
-		fmt.Printf("   http://localhost:%d\n", serverPort)
-		fmt.Printf("------------------------------------------------\n\n")
-
-		// Block forever (the server is running in a goroutine)
-		select {}
+		finishSessionPurge()
+	} else {
+		log.Println("Some torrent operations are still active; cache preserved during shutdown")
 	}
 }
 
@@ -858,12 +847,17 @@ func respondWithJSON(w http.ResponseWriter, status int, data interface{}) {
 
 // Retire only sessions that have been idle for the complete TTL and have no
 // retained requests. The registry lock prevents a concurrent retain/close race.
-func cleanupSessions() {
+func cleanupSessions(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		reapInactiveSessions(time.Now(), 15*time.Minute)
-		runtime.GC()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reapInactiveSessions(time.Now(), 15*time.Minute)
+			runtime.GC()
+		}
 	}
 }
 
