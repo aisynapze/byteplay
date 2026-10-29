@@ -202,8 +202,9 @@ func (m *hlsManager) schedulePauseLocked(job *hlsPlayback) {
 		}
 		job.mu.Lock()
 		paused := job.paused
+		complete := job.state == "complete"
 		job.mu.Unlock()
-		if !paused {
+		if !paused || complete {
 			return
 		}
 		job.cancel()
@@ -262,4 +263,12 @@ func (m *hlsManager) control(w http.ResponseWriter, r *http.Request, id string) 
 	m.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{"playbackId": id, "processingState": state})
+}
+
+func (m *hlsManager) idleExpired(job *hlsPlayback, now time.Time) bool {
+	job.mu.Lock()
+	defer job.mu.Unlock()
+	// Playlist polls intentionally do not extend lastDemand.
+	return !job.paused && job.state == "ready" && !job.lastDemand.IsZero() &&
+		now.Sub(job.lastDemand) >= m.idleTimeout
 }
