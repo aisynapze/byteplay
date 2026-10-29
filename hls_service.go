@@ -382,6 +382,9 @@ func (m *hlsManager) run(job *hlsPlayback) {
 				job.state = "ready"
 			}
 			job.mu.Unlock()
+			if m.idleExpired(job, time.Now()) {
+				job.cancel()
+			}
 			if dirSize(job.dir) > maxHLSPlaybackBytes || dirSize(m.root) > maxHLSCacheBytes {
 				job.setError("failed", "cache_full", "HLS cache quota reached")
 				job.cancel()
