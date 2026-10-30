@@ -84,18 +84,18 @@ type hlsPlayback struct {
 	peers         int
 }
 type hlsManager struct {
-	mu           sync.RWMutex
-	root         string
-	torrentRoot  string
-	cacheLimit   int64
+	mu             sync.RWMutex
+	root           string
+	torrentRoot    string
+	cacheLimit     int64
 	cacheConfigErr error
-	retentionTTL time.Duration
-	pauseGrace   time.Duration
-	idleTimeout  time.Duration
-	jobs         map[string]*hlsPlayback
-	processSlots chan struct{}
-	videoSlots   chan struct{}
-	ffmpeg       string
+	retentionTTL   time.Duration
+	pauseGrace     time.Duration
+	idleTimeout    time.Duration
+	jobs           map[string]*hlsPlayback
+	processSlots   chan struct{}
+	videoSlots     chan struct{}
+	ffmpeg         string
 }
 
 func newHLSManager(root, ffmpeg string) *hlsManager {
