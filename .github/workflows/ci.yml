@@ -184,7 +184,7 @@ jobs:
           npm ci
           npm run build
           npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chrome
       - name: Generate royalty-free 32-second H264/AAC fixture and sparse padding
         run: |
           mkdir -p "$RUNNER_TEMP/byteplay-browser-seed"
