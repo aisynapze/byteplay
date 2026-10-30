@@ -39,6 +39,18 @@ func parseHLSCacheLimit(raw string) (int64, error) {
 // running quota check and is NOT guaranteed to be prevented in advance.
 func (m *hlsManager) accountedCacheBytesLocked() int64 {
 	used := dirSize(m.torrentRoot) + dirSize(m.root)
+	// Writes may target sparse offsets and extend default .part files.
+	// Count all committed and in-flight projected file lengths that are not
+	// already represented by the current on-disk apparent size.
+	for path, end := range m.torrentFileEnds {
+		remaining := end - projectedPartFileSize(path)
+		if remaining > 0 {
+			if used > math.MaxInt64-remaining {
+				return math.MaxInt64
+			}
+			used += remaining
+		}
+	}
 	for dir, cap := range m.reservations {
 		remaining := cap - dirSize(dir)
 		if remaining > 0 {

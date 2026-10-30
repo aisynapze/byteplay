@@ -91,6 +91,7 @@ type hlsManager struct {
 	cacheConfigErr error
 	cacheMu        sync.Mutex
 	reservations   map[string]int64
+	torrentFileEnds map[string]int64
 	reserveBytes   int64
 	retentionTTL   time.Duration
 	pauseGrace     time.Duration

@@ -388,7 +388,7 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 	settingsMutex.RUnlock()
 
 	config := torrent.NewDefaultClientConfig()
-	config.DefaultStorage = storage.NewFile("./torrent-data")
+	config.DefaultStorage = newBudgetTorrentStorage("./torrent-data", activeHLS)
 	port := getAvailablePort()
 	config.ListenPort = port
 
