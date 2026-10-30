@@ -131,6 +131,28 @@ async function run() {
           assert.equal(await page.locator(".bp-played-item").count(), 1);
           assert.equal(await page.locator(".bp-played-item h3").innerText(), "Legal synthetic sample (H.264).mkv");
           assert.equal(await page.locator(".bp-played-actions .bp-played-resume").count(), 1);
+          // First test Resume: a ready generation must be restarted at the
+          // saved absolute timestamp, rather than playing from zero.
+          let requestedSeek = null;
+          await page.unroute("**/api/v1/hls/" + PLAYBACK + "/status");
+          await page.route("**/api/v1/hls/" + PLAYBACK + "/status", route => route.fulfill({
+            status: 200, contentType: "application/json",
+            body: JSON.stringify({ playbackId: PLAYBACK, state: "ready", generation: 1,
+              playlistReady: true, playlistUrl: "/api/v1/hls/" + PLAYBACK + "/g/1/index.m3u8",
+              durationSeconds: 60, startSeconds: 0, segmentsReady: 2 })
+          }));
+          await page.route("**/api/v1/hls/" + PLAYBACK + "/seek", async route => {
+            requestedSeek = route.request().postDataJSON();
+            await route.fulfill({ status: 200, contentType: "application/json",
+              body: JSON.stringify({ state: "preparing", generation: 2 }) });
+          });
+          await page.getByRole("button", { name: "Resume: Legal synthetic sample (H.264).mkv" }).click();
+          await page.waitForFunction(() => document.querySelector("#bp-watch:not([hidden])") != null);
+          await page.waitForFunction(() => document.querySelector("#bp-player-state")?.textContent === "Preparing new generation", null, { timeout: 10000 });
+          assert.equal(requestedSeek?.seconds, 32, "Resume must restart at saved position minus 3s lead-in");
+          await page.locator("#bp-new").click();
+          await page.locator("#bp-home").waitFor({ state: "visible" });
+          // Replay must restart from 0 using the saved magnet and file index.
           await page.getByRole("button", { name: "Replay: Legal synthetic sample (H.264).mkv" }).click();
           await page.locator("#bp-watch").waitFor({ state: "visible" });
           assert.equal(await page.locator("#bp-title").innerText(), "Legal synthetic sample (H.264).mkv");
