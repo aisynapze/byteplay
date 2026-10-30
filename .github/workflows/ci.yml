@@ -158,3 +158,69 @@ jobs:
           path: /tmp/byteplay-ui-shots
           if-no-files-found: warn
           retention-days: 7
+
+  browser-media:
+    name: Real Video.js HLS decode from seeded torrent (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOFLAGS: -mod=readonly
+      BYTEPLAY_E2E_URL: http://127.0.0.1:3347
+      BYTEPLAY_SCREENSHOT_DIR: /tmp/byteplay-browser-media
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install FFmpeg, pinned Chromium runner and frontend assets
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          npm ci
+          npm run build
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Generate royalty-free 32-second H264/AAC fixture and sparse padding
+        run: |
+          mkdir -p "$RUNNER_TEMP/byteplay-browser-seed"
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i 'testsrc2=size=640x360:rate=24' \
+            -f lavfi -i 'sine=frequency=440:sample_rate=48000' \
+            -t 32 -c:v libx264 -preset ultrafast -crf 32 \
+            -pix_fmt yuv420p -c:a aac -b:a 96k \
+            -movflags +faststart "$RUNNER_TEMP/byteplay-browser-seed/clip.mp4"
+          truncate -s 52428800 "$RUNNER_TEMP/byteplay-browser-seed/padding.bin"
+      - name: Decode real torrent-backed HLS in the browser
+        env:
+          BYTEPLAY_BROWSER_FIXTURE_ROOT: ${{ runner.temp }}/byteplay-browser-seed
+          BYTEPLAY_BROWSER_STOP_FILE: ${{ runner.temp }}/byteplay-browser-stop
+        run: |
+          set -e
+          rm -f "$BYTEPLAY_BROWSER_STOP_FILE"
+          go test -tags=integration -run '^TestBrowserHLSFixtureHost$' -count=1 -timeout=160s -v . > "$RUNNER_TEMP/browser-fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'touch "$BYTEPLAY_BROWSER_STOP_FILE"; kill "$fixture_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/browser-fixture.log"' EXIT
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3347/__byteplay_browser_fixture >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$fixture_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo "Browser fixture failed to become ready"; exit 1; fi
+          node scripts/verify-browser-hls.cjs
+          touch "$BYTEPLAY_BROWSER_STOP_FILE"
+          wait "$fixture_pid"
+          trap - EXIT
+      - name: Upload real video playback screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: byteplay-m7-real-hls-chromium
+          path: /tmp/byteplay-browser-media
+          if-no-files-found: warn
+          retention-days: 7
