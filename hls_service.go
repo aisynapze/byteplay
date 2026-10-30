@@ -105,7 +105,7 @@ func newHLSManager(root, ffmpeg string) *hlsManager {
 	limit, configErr := parseHLSCacheLimit(os.Getenv("BITPLAY_CACHE_MAX_BYTES"))
 	return &hlsManager{root: root, torrentRoot: "./torrent-data", cacheLimit: limit,
 		cacheConfigErr: configErr, retentionTTL: defaultHLSRetentionTTL,
-		reservations: make(map[string]int64), reserveBytes: maxHLSPlaybackBytes,
+		reservations: make(map[string]int64), reserveBytes: min(maxHLSPlaybackBytes, limit),
 		ffmpeg: ffmpeg, jobs: make(map[string]*hlsPlayback),
 		pauseGrace: 90 * time.Second, idleTimeout: 2 * time.Minute,
 		processSlots: make(chan struct{}, 2), videoSlots: make(chan struct{}, 1)}
@@ -153,6 +153,9 @@ func (j *hlsPlayback) setError(state, code, msg string) {
 		return
 	}
 	j.state = state
+	if state == "failed" {
+		j.playlistReady = false
+	}
 	j.err = &hlsError{Code: code, Message: msg}
 	j.mu.Unlock()
 }
@@ -414,7 +417,7 @@ func (m *hlsManager) run(job *hlsPlayback) {
 			if m.idleExpired(job, time.Now()) {
 				job.cancel()
 			}
-			if dirSize(job.dir) > maxHLSPlaybackBytes || !m.cacheWithinBudget() {
+			if dirSize(job.dir) > m.reserveBytes || !m.cacheWithinBudget() {
 				job.setError("failed", "cache_full", "Combined torrent/HLS cache budget reached")
 				job.cancel()
 			}
