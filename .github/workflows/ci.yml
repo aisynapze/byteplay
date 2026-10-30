@@ -12,6 +12,7 @@ on:
       - "package-lock.json"
       - "Dockerfile"
       - ".github/workflows/ci.yml"
+      - "scripts/**"
   workflow_dispatch:
 
 permissions:
@@ -111,3 +112,49 @@ jobs:
         run: |
           go test -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion)" -count=1 -timeout=120s -v .
           go test -race -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion)" -count=1 -timeout=120s -v .
+
+  browser-ui:
+    name: Chromium home/watch responsive smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOFLAGS: -mod=readonly
+      BYTEPLAY_E2E_URL: http://127.0.0.1:3347
+      BYTEPLAY_SCREENSHOT_DIR: /tmp/byteplay-ui-shots
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: CSS build and pinned ephemeral Chromium test dependency
+        run: |
+          npm ci
+          npm run build
+          npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Launch BytePlay on a loopback-only server
+        run: |
+          go build -o "$RUNNER_TEMP/byteplay-ui-server" .
+          "$RUNNER_TEMP/byteplay-ui-server" > "$RUNNER_TEMP/byteplay-ui-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/byteplay-ui-server.pid"
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3347/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/byteplay-ui-server.log"
+          exit 1
+      - name: Check rendered home, watch, settings and responsive behavior
+        run: node scripts/verify-ui.cjs
+      - name: Upload screenshots for human M7 review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: byteplay-m7-chromium-screenshots
+          path: /tmp/byteplay-ui-shots
+          if-no-files-found: warn
+          retention-days: 7
