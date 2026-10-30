@@ -50,7 +50,7 @@ async function run() {
       // every save/test action using actual computed browser colors.
       const colorContrast = await page.evaluate(() => {
         const calculate = (color) => {
-          const parts = color.match(/[\\d.]+/g)?.slice(0, 3).map(Number) || [0, 0, 0];
+          const parts = color.match(/[0-9.]+/g)?.slice(0, 3).map(Number) || [0, 0, 0];
           const rgb = parts.map(x => {
             const v = x / 255;
             return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
