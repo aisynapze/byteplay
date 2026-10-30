@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   validateTorrentFile, validateCaptionFile, MAX_TORRENT_BYTES, videoFiles, captionFiles,
-  readableError, formatBytes, formatTime, stateText, srtToVtt
+  readableError, formatBytes, formatTime, stateText, srtToVtt, isCurrentHLSStatus
 } from "./byteplay-core.mjs";
 
 test("torrent validation rejects empty, wrong extension, oversized metadata", () => {
@@ -57,4 +57,11 @@ test("subtitles accept BOM/CRLF and convert SRT commas to VTT dots", () => {
   assert.throws(() => srtToVtt("garbage"), /No valid subtitle cues/);
   assert.match(validateCaptionFile({ name: "bad.sub", size: 2 }), /\.srt or \.vtt/);
   assert.equal(validateCaptionFile({ name: "captions.vtt", size: 210 }), null);
+});
+
+test("status from superseded generation cannot reattach its old playlist", () => {
+  assert.equal(isCurrentHLSStatus({ generation: 1, playlistReady: true }, 2), false);
+  assert.equal(isCurrentHLSStatus({ generation: 2, playlistReady: false }, 2), true);
+  assert.equal(isCurrentHLSStatus({ generation: 3, playlistReady: true }, 2), true);
+  assert.equal(isCurrentHLSStatus({ state: "preparing" }, 2), false);
 });
