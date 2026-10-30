@@ -38,7 +38,8 @@ cd byteplay
 git switch implement/byteplay-v0.1.1
 npm ci
 npm run build
-go run .
+# Recommended: sparse classic torrent file I/O (set before process startup).
+TORRENT_STORAGE_DEFAULT_FILE_IO=classic go run .
 ```
 
 Open <http://127.0.0.1:3347>. The default listener is loopback-only and does not require credentials. Build with `go run .` rather than `go run main.go`: BytePlay uses multiple Go source files in package main. Go downloads imported module dependencies on demand; `go mod download` is not required as a standalone step.
@@ -72,7 +73,7 @@ docker run -d --name byteplay \
 
 Open <http://127.0.0.1:3347> and authenticate. The Docker image rebuilds CSS using the locked npm dependencies, compiles the Go executable with module/build caches, and ships FFmpeg/FFprobe without Node or the Go toolchain. For access from other computers, deliberately change the host-side `-p` binding **only** after configuring authentication and an appropriate HTTPS ingress.
 
-`config/settings.json` stores persistent settings; `torrent-data` stores downloaded torrent pieces. The HLS cache lives in `./hls-cache` inside the application runtime (separate from persistent `torrent-data`). Its sessions expire after 15 minutes with no genuine demand, and superseded HLS generations are removed. The combined disk watermark counts both roots. Competing HLS generations reserve their permitted output space before FFmpeg runs; already written bytes count inside the reservation, and the reservation is released on worker exit. At startup BytePlay removes abandoned, internally named HLS playback directories; unrelated files and symlinks are preserved. **This recovery assumes one BytePlay instance owns the HLS directory**: do not share one HLS cache volume between independently running servers. This is not archival storage. Torrent piece writes now use a guarded file-storage adapter sharing the same cache ledger as HLS workers. The default anacrolix mmap backend allocates a **whole selected file** when first opened, so BytePlay requires enough apparent-size budget for that file even if only a small piece will be streamed. Files exceeding the available budget are rejected rather than silently overallocating. This is a single-process apparent-file-length limit, **not** an OS-level disk-block quota or protection against unrelated processes writing to either data directory. Container teardown or cache purge may remove temporary playback output; do not treat it as archival media storage.
+`config/settings.json` stores persistent settings; `torrent-data` stores downloaded torrent pieces. The HLS cache lives in `./hls-cache` inside the application runtime (separate from persistent `torrent-data`). Its sessions expire after 15 minutes with no genuine demand, and superseded HLS generations are removed. The combined disk watermark counts both roots. Competing HLS generations reserve their permitted output space before FFmpeg runs; already written bytes count inside the reservation, and the reservation is released on worker exit. At startup BytePlay removes abandoned, internally named HLS playback directories; unrelated files and symlinks are preserved. **This recovery assumes one BytePlay instance owns the HLS directory**: do not share one HLS cache volume between independently running servers. This is not archival storage. Torrent piece writes now use a guarded file-storage adapter sharing the same cache ledger as HLS workers. The Docker runtime sets `TORRENT_STORAGE_DEFAULT_FILE_IO=classic` to use the upstream **classic file I/O**, which grows a `.part` file only to the farthest written piece offset and can therefore fetch initial video pieces even when the full file size exceeds the configured budget. BytePlay's guarded storage projects that sparse growth before each write under the shared HLS reservation mutex. For a local `go run .` without that environment variable, anacrolix defaults to **mmap**, which preallocates the whole file's apparent length before the first piece; BytePlay conservatively reserves that full length and rejects the write when capacity is unavailable. Sparse mode does not make far-offset seeks free: a jump near the end may still extend the apparent file size past the budget and be rejected. This is a single-process apparent-file-length limit, **not** an OS-level disk-block quota or protection against unrelated processes writing to either data directory. Container teardown or cache purge may remove temporary playback output; do not treat it as archival media storage.
 
 The intended future published image name is `ghcr.io/aisynapze/byteplay`, contingent on release certification. Do not assume a `:latest` tag is already published or production-approved.
 
@@ -85,6 +86,7 @@ The intended future published image name is `ghcr.io/aisynapze/byteplay`, contin
 | `BITPLAY_ALLOW_UNAUTHENTICATED_LAN=1` | Dangerous development-only bypass; never use for a public deployment |
 | `BITPLAY_MAX_REMUX` | Existing remux concurrency control (the new HLS worker also has explicit bounded slots) |
 | `BITPLAY_CACHE_MAX_BYTES` | Positive-integer combined budget for `torrent-data` and `hls-cache`; default 10737418240 bytes (10 GiB). HLS output reservations and torrent piece growth checks are serialized within one BytePlay instance. The mmap backend reserves full file lengths; this does not constitute filesystem-level free-space or multi-instance allocation control. |
+| `TORRENT_STORAGE_DEFAULT_FILE_IO` | Set to `classic` **before process startup** for sparse partial-file writes (default in the Docker runtime); unset uses anacrolix mmap and requires whole-file allocation headroom. This env variable is read by the library during package initialization, not switchable at runtime. |
 
 The Settings UI retains proxy, search-provider credentials, connection tests, and maintenance actions. Secret fields are redacted from settings reads; successful configuration does **not** establish that all host traffic is routed through a VPN. Avoid copying real credentials into CI logs or bug reports.
 
@@ -100,6 +102,7 @@ npm ci && npm run build
 ```
 
 The GitHub-hosted CI workflow `.github/workflows/ci.yml` additionally verifies:
+- Separate race-enabled `TORRENT_STORAGE_DEFAULT_FILE_IO=classic` tests: small video-piece writes under a budget smaller than the declared file size, rejection of over-budget far-offset writes, and HLS/torrent shared headroom. The real Chrome torrent-backed HLS test also uses the classic backend; default mmap whole-file rejection tests remain independent.
 
 - A locally seeded legal H.264/AAC torrent with FFmpeg HLS, codec-route fixtures, segment readiness and generation-safe seeks.
 - Responsive home/watch UI and settings modal in headless Chromium.
@@ -113,6 +116,6 @@ The real-browser fixture is **integration-test-only**, bound to loopback and not
 
 ## Open release gates
 
-BytePlay remains pre-release until real-media Firefox/Safari coverage, 30-minute MKV/keyframe/PTS seek accuracy, multi-audio and subtitle interaction checks, CPU/RSS/performance and physical disk-block/space-pressure benchmarks, broader accessibility/mobile viewports, and independent production review are completed. The default mmap storage cannot partially allocate a video file whose full length exceeds the cache budget. Evidence and outstanding checks are tracked in `docs/evidence/`, `WORKLOG.md`, and `TODO.md`.
+BytePlay remains pre-release until real-media Firefox/Safari coverage, 30-minute MKV/keyframe/PTS seek accuracy, multi-audio and subtitle interaction checks, CPU/RSS/performance and physical disk-block/space-pressure benchmarks, broader accessibility/mobile viewports, and independent production review are completed. The recommended classic backend supports partial allocation of larger files, but its far-offset seek behavior, startup latency and sustained resource profile still require production-size benchmarks. Unset/default mmap continues to require whole-file apparent-size headroom. Evidence and outstanding checks are tracked in `docs/evidence/`, `WORKLOG.md`, and `TODO.md`.
 
 Original upstream project: [aculix/bitplay](https://github.com/aculix/bitplay). This fork is branded BytePlay.
