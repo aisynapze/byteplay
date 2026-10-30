@@ -79,6 +79,10 @@ async function run() {
       }
       await page.locator(".close-settings").first().click({ position: { x: 5, y: 5 } });
       assert.equal(await page.locator("#settings-model").isVisible(), false);
+      await page.locator("#bp-settings").click();
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#settings-model").isVisible(), false,
+        "Escape must dismiss Settings dialog");
       if ([1920, 1024, 390, 375, 844].includes(viewport.width)) {
         await page.route("**/api/v1/torrent/add", route => route.fulfill({
           status: 200, contentType: "application/json", body: JSON.stringify({ sessionId: TORRENT })
