@@ -221,7 +221,8 @@ function prepareVideo() {
   });
   const player = ui.player;
   player.on("play", () => {
-    ui.browser = "playing";
+    // Play is an intent; only the playing event confirms actual playback.
+    ui.browser = "buffering";
     ui.wantPlay = true;
     if (!ui.suppressEvents) sendControl("resume");
     setStage(ui.status);

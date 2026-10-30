@@ -116,8 +116,8 @@ jobs:
         env:
           BYTEPLAY_TEST_FIXTURE_ROOT: ${{ runner.temp }}/byteplay-seed
         run: |
-          go test -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion)" -count=1 -timeout=120s -v .
-          go test -race -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion)" -count=1 -timeout=120s -v .
+          go test -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion|CopySeekEffectiveStart)" -count=1 -timeout=120s -v .
+          go test -race -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion|CopySeekEffectiveStart)" -count=1 -timeout=120s -v .
 
   browser-ui:
     name: Chromium home/watch responsive smoke

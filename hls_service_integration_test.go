@@ -271,8 +271,9 @@ func TestTorrentBackedHLSReadyBeforeWholeTorrentCompletion(t *testing.T) {
 		if ready.Generation != started.Generation || !ready.PlaylistReady || ready.PlaylistURL == nil || ready.SegmentsReady < 2 {
 			t.Fatalf("seek generation not ready: %+v", ready)
 		}
-		if ready.StartSeconds != float64(step.seconds) {
-			t.Fatalf("seek offset not carried through: got %.2f expected %d", ready.StartSeconds, step.seconds)
+		// Report the source GOP keyframe rather than the requested second.
+		if ready.StartSeconds > float64(step.seconds)+0.05 || ready.StartSeconds < float64(step.seconds)-12 {
+			t.Fatalf("effective keyframe %.3f outside GOP before %ds", ready.StartSeconds, step.seconds)
 		}
 		check, err := client.Get(base + *ready.PlaylistURL)
 		if err != nil {

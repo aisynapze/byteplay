@@ -337,6 +337,19 @@ func (m *hlsManager) run(job *hlsPlayback) {
 			}
 		}
 	}
+	// Stream-copy seeks begin on a source keyframe, often before the
+	// requested position. Never report the requested offset as measured.
+	if job.startSeconds > 0 && route.VideoEncoder == "copy" {
+		effective, err := probeCopySeekStart(job.ctx, ffprobePath,
+			loopbackStreamURL(job.sessionID, job.fileIndex), job.startSeconds, loopbackInternalToken)
+		if err != nil {
+			job.setError("failed", "seek_position_unverified", "Cannot establish the stream-copy seek keyframe")
+			return
+		}
+		job.mu.Lock()
+		job.startSeconds = effective
+		job.mu.Unlock()
+	}
 	job.mu.Lock()
 	job.probe = probe
 	mode := string(route.Mode)
