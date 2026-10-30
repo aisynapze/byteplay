@@ -122,3 +122,11 @@
 - Observed sporadic disconnected local loopback peer on one 100Mbps race subtest (#41006463850); added narrow test-only reconnection while ActivePeers=0 rather than weakening byte assertions. Last two runs green.
 - Latest CI [#41007070375](https://github.com/aisynapze/byteplay/actions/runs/41007070375) **SUCCESS**: Go/frontend, seeded media/race, and Chromium UI jobs.
 - M7 is PARTIAL, not release-ready; real browser HLS playback, cross-browser, zoom and human interaction tests remain open.
+
+## 2026-10-30 — Chrome real playback and Docker CI milestone
+
+- Added CI-only fixture host and Playwright real video decoding gate. Earlier run on stripped Chromium headless shell rejected H.264 MSE codec (no playlist fetched). Corrected test to installed Google Chrome and bounded the video.play wait. [#41008831042](https://github.com/aisynapze/byteplay/actions/runs/41008831042): 5/5 SUCCESS. Real H.264/AAC playback observed 34 frames/1.208469 seconds, 640x360 and 4 TS responses.
+- Added locked npm CSS multi-stage Docker build and Docker smoke for Basic Auth (401 anonymous), valid FFmpeg/FFprobe/libx264/AAC and shipped CSS. All green.
+- Updated README operator steps to byteplay fork, `go run .`, safe listener/auth requirements and local Docker build; avoided implying an unapproved published image.
+- Enlarged responsive Chromium smoke viewport matrix: code committed, full new matrix rerun in progress; do not claim newly added viewport checks passed until that run finishes.
+- M7 and M8 remain partial, with cross-browser, seek timestamp, resources, eviction, accessibility and release gates not certified.

@@ -9,8 +9,8 @@ Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41` — main identical a
 - [ ] M4 — probe and route: CI VERIFIED (codec matrix, FFmpeg argv, finalized H264/AAC HLS from three synthetic local sources); torrent-backed HLS playback pending
 - [ ] M5 — HLS generation: CORE CI VERIFIED (real seeded torrent → FFprobe → FFmpeg → generation-1 HLS ready/media; 2-segment gate tested; 2/1 worker-slot limits implemented but stress verification pending). Still OPEN: quota/retention lifecycle certification, multi-playback stress, startup measurement, full M5 gates.
 - [ ] M6 — seek and lifecycle: CORE BACKEND CI VERIFIED (generation restart, forward/backward seek and audio selection, stale URLs, explicit pause/resume, 90s grace and no-demand semantics, absolute time adapter unit-tested); STILL OPEN: effective keyframe/PTS accuracy proof, 30-minute MKV/Video.js E2E, real pause/seek/subtitle sync, browser playback integration and resource stress.
-- [ ] M7 — Midnight Current UI: CORE CHROMIUM CI VERIFIED (responsive branded home/watch, HLS API wiring, settings, controlled torrent/upload/search, file info, subtitles and audio, state/seek tests, rendered desktop/mobile smoke and screenshots); PARTIAL — cross-browser real HLS decoding, manual full viewport/200% zoom, touch/caption/settings parity and human visual sign-off pending.
-- [ ] M8 — release certification: NOT VERIFIED
+- [ ] M7 — Midnight Current UI: CORE CHROME PLAYBACK VERIFIED (real seeded torrent → FFmpeg HLS → Video.js 8 on installed Google Chrome: ≥34 decoded frames and 1.21s time advance), branded home/watch, responsive Chromium smoke, settings continuity, timeline/seek and subtitles. OPEN: Firefox/Safari browser playback, full viewport human review, 200% zoom, interactive multi-audio/subtitle and accessibility certification.
+- [ ] M8 — release certification: DOCKER + AUTH + CSS/FFMPEG SMOKE VERIFIED in GitHub-hosted CI; 5-job quality gate success. OPEN: actual deployment smoke, performance/memory/cache/quota/process stress, browser matrix, release review and authorized tag/publish.
 
 - [ ] BP-001: NOT VERIFIED
 - [ ] BP-002: NOT VERIFIED

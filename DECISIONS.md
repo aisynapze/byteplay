@@ -12,3 +12,6 @@
 8. M6 playback seeks serialize cancel+Wait before publishing a new generation. Retain old generation files until explicit playback teardown but never serve superseded URLs. Keep pause intent from explicit client events, not playlist request frequency; the adapter lives outside Video.js internals. Effective copy-keyframe seek accuracy remains an explicit unverified acceptance gate.
 
 9. M7 keeps the existing settings/proxy/indexer DOM hidden behind the new branded shell until UI parity is verified. New UI is vanilla JS + existing Tailwind and Video.js 8.24.0. Browser smoke metadata/status may be mocked only for deterministic layout checks; real seeded media tests remain separate and required. No new production JS runtime dependency.
+
+10. M8 browser H264/AAC decoding proof uses installed Google Chrome because Playwright's stripped Chromium headless shell did not support AVC via MediaSource, even though Video.js 8.24.0/VHS was bundled. Keep responsive UI smoke on Chromium; require actual decoded frames and playback progression for media acceptance. Do not confuse missing test-browser codecs with a torrent or FFmpeg regression.
+11. Docker must rebuild Tailwind from package-lock.json in a separate Node stage, retain a small Go/FFmpeg runtime, and fail CI unless explicit Basic Auth and media encoders work. Do not advertise an unpublished GHCR tag.
