@@ -257,6 +257,7 @@ jobs:
           done
           test -s /tmp/byteplay-capabilities.json
           python3 -c 'import json; c=json.load(open("/tmp/byteplay-capabilities.json")); assert c["ffmpeg"] is True, c'
+          curl -fsS --user ci-test:local-fixture-password http://127.0.0.1:13347/healthz | grep -q '^ok'
           unauthenticated=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:13347/api/v1/capabilities)
           test "$unauthenticated" = 401
           docker exec byteplay-ci ffprobe -version

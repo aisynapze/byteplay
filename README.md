@@ -2,7 +2,7 @@
 
 **Torrent-to-HLS playback in your browser.** BytePlay is a single-process Go application with an `anacrolix/torrent` engine, on-demand FFprobe/FFmpeg HLS packaging, selective H.264/AAC transcoding, Video.js 8 playback, and the Midnight Current interface.
 
-This repository evolves the upstream BitPlay project while retaining the existing SOCKS5, Prowlarr, Jackett, subtitles, and settings integrations. Use only media and torrents you are authorized to access. **A proxy setting is not a guarantee of privacy or anonymity.**
+This repository evolves the upstream BitPlay project while retaining the existing SOCKS5, Prowlarr, Jackett, subtitles, and settings integrations. Use only media and torrents you are authorized to access. **A proxy setting is not a guarantee of privacy or anonymity.** The app's SOCKS5 option is best-effort for supported HTTP traffic; BitTorrent peer/tracker egress isolation has not been certified. For a fail-closed network requirement, run BytePlay inside a VPN/network namespace with enforced egress boundaries.
 
 > **Release status:** Development branch `implement/byteplay-v0.1.1` is under active verification. GitHub-hosted CI has passed real locally seeded HLS playback in Chrome and a Docker authentication/media smoke test. A tagged image and production release are **not certified or guaranteed to be published**; see `TODO.md` and `docs/evidence/M8.md` for open gates.
 

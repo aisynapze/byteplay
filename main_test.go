@@ -197,3 +197,46 @@ func TestProxyTestErrorNeverExposesCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsEndpointsRejectOversizedBodies(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		handler http.HandlerFunc
+	}{
+		{"proxy-test", testProxyConnection},
+		{"prowlarr-test", testProwlarrConnection},
+		{"jackett-test", testJackettConnection},
+		{"proxy-save", saveProxySettingsHandler},
+		{"prowlarr-save", saveProwlarrSettingsHandler},
+		{"jackett-save", saveJackettSettingsHandler},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.NewReader(`{"proxyUrl":"` + strings.Repeat("x", 66000) + `"}`)
+			w := httptest.NewRecorder()
+			tc.handler(w, httptest.NewRequest(http.MethodPost, "/api/v1/settings", body))
+			if w.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("unbounded settings body returned %d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHealthzRequiresMediaPrerequisites(t *testing.T) {
+	oldAvailable, oldProbe := ffmpegAvailable, ffprobePath
+	defer func() {
+		ffmpegAvailable, ffprobePath = oldAvailable, oldProbe
+	}()
+	check := func(method string, want int) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		healthzHandler(w, httptest.NewRequest(method, "/healthz", nil))
+		if w.Code != want {
+			t.Fatalf("%s /healthz returned %d, want %d", method, w.Code, want)
+		}
+	}
+	ffmpegAvailable, ffprobePath = false, ""
+	check("GET", http.StatusServiceUnavailable)
+	ffmpegAvailable, ffprobePath = true, "ffprobe"
+	check("GET", http.StatusOK)
+	check("POST", http.StatusMethodNotAllowed)
+}

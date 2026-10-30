@@ -237,6 +237,7 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	if len(m.jobs) >= maxHLSPlaybacks {
 		m.mu.Unlock()
+		w.Header().Set("Retry-After", "5")
 		writeHLSError(w, http.StatusTooManyRequests, "playback_limit", "Too many playback sessions")
 		return
 	}

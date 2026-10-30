@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -393,7 +392,7 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 
 	if enableProxy {
 		log.Println("Creating torrent client with proxy...")
-		proxyDialer, err := createProxyDialer(proxyURL)
+		_, err := createProxyDialer(proxyURL)
 		if err != nil {
 			releasePort(port)
 			return nil, port, errors.New("invalid SOCKS5 proxy configuration")
@@ -409,9 +408,9 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 			return nil, port, err
 		}
 
-		setValue(client, "dialerNetwork", func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return proxyDialer.Dial(network, addr)
-		})
+		// This config forwards supported HTTP requests. SOCKS5 peer/tracker
+		// isolation has not been established; do not claim VPN-grade egress.
+		log.Println("SOCKS5 configured for supported HTTP traffic; torrent peer isolation is not certified")
 
 		return client, port, nil
 	}
@@ -423,25 +422,6 @@ func initTorrentWithProxy() (*torrent.Client, int, error) {
 		return nil, port, err
 	}
 	return client, port, nil
-}
-
-// Helper function to try to set a field value using reflection
-// This is a bit hacky but might help override the client's dialer
-func setValue(obj interface{}, fieldName string, value interface{}) {
-	// This is a best-effort approach that may not work with all library versions
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Warning: Could not set %s field: %v", fieldName, r)
-		}
-	}()
-
-	reflectValue := reflect.ValueOf(obj).Elem()
-	field := reflectValue.FieldByName(fieldName)
-
-	if field.IsValid() && field.CanSet() {
-		field.Set(reflect.ValueOf(value))
-		log.Printf("Successfully set %s to use proxy", fieldName)
-	}
 }
 
 // Override system settings with our proxy
@@ -529,6 +509,7 @@ func main() {
 	http.HandleFunc("/api/v1/sessions", sessionsHandler)
 	http.HandleFunc("/api/v1/cache/purge", purgeCacheHandler)
 	http.HandleFunc("/api/v1/capabilities", capabilitiesHandler)
+	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/api/v1/hls/", activeHLS.handler)
 
 	// Set up client file serving
@@ -1239,8 +1220,7 @@ func testProwlarrConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var settings ProwlarrSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	if !decodeLimitedSettingsBody(w, r, &settings) {
 		return
 	}
 
@@ -1264,15 +1244,15 @@ func testProwlarrConnection(w http.ResponseWriter, r *http.Request) {
 
 	req, err := http.NewRequest("GET", testURL, nil)
 	if err != nil {
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to prepare proxy test request"})
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to prepare Prowlarr test request"})
 		return
 	}
 
 	req.Header.Set("X-Api-Key", prowlarrApiKey)
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Error making request to Prowlarr: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to connect to Prowlarr: " + err.Error()})
+		log.Println("Prowlarr connection test failed")
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to connect to Prowlarr"})
 		return
 	}
 	defer resp.Body.Close()
@@ -1282,9 +1262,9 @@ func testProwlarrConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
-	if err != nil || len(responseBody) > 4096 {
-		respondWithJSON(w, http.StatusBadGateway, map[string]string{"error": "Proxy response unavailable or too large"})
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if err != nil || len(responseBody) > 1<<20 {
+		respondWithJSON(w, http.StatusBadGateway, map[string]string{"error": "Prowlarr status response unavailable or too large"})
 		return
 	}
 
@@ -1445,8 +1425,7 @@ func testJackettConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var settings JackettSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	if !decodeLimitedSettingsBody(w, r, &settings) {
 		return
 	}
 
@@ -1475,8 +1454,8 @@ func testJackettConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Error making request to Jackett: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to connect to Jackett: " + err.Error()})
+		log.Println("Jackett connection test failed")
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to connect to Jackett"})
 		return
 	}
 	defer resp.Body.Close()
@@ -1655,8 +1634,7 @@ func testProxyConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var settings ProxySettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	if !decodeLimitedSettingsBody(w, r, &settings) {
 		return
 	}
 
@@ -1692,8 +1670,7 @@ func testProxyConnection(w http.ResponseWriter, r *http.Request) {
 	testURL := "https://httpbin.org/ip"
 	req, err := http.NewRequest("GET", testURL, nil)
 	if err != nil {
-		log.Printf("Error creating request: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to prepare proxy test request"})
 		return
 	}
 
@@ -1705,10 +1682,9 @@ func testProxyConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("Error reading response: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read proxy response"})
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
+	if err != nil || len(responseBody) > 65536 {
+		respondWithJSON(w, http.StatusBadGateway, map[string]string{"error": "Proxy response unavailable or too large"})
 		return
 	}
 
@@ -1767,8 +1743,7 @@ func saveProxySettingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var newSettings ProxySettings
-	if err := json.NewDecoder(r.Body).Decode(&newSettings); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	if !decodeLimitedSettingsBody(w, r, &newSettings) {
 		return
 	}
 
@@ -1799,8 +1774,7 @@ func saveProwlarrSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var newSettings ProwlarrSettings
-	if err := json.NewDecoder(r.Body).Decode(&newSettings); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	if !decodeLimitedSettingsBody(w, r, &newSettings) {
 		return
 	}
 
@@ -1836,8 +1810,7 @@ func saveJackettSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var newSettings JackettSettings
-	if err := json.NewDecoder(r.Body).Decode(&newSettings); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	if !decodeLimitedSettingsBody(w, r, &newSettings) {
 		return
 	}
 
