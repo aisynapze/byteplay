@@ -7,7 +7,7 @@ const el = (id) => document.getElementById(id);
 const ui = { session: null, files: [], videos: [], captions: [], selected: null, playback: null,
   status: null, player: null, poll: null, token: 0, wantPlay: true,
   browser: "waiting", attachedGeneration: 0, expectedGeneration: 0, trackURLs: [], lastKnownTime: 0,
-  suppressEvents: false, probe: null, provider: null };
+  suppressEvents: false, probe: null, provider: null, remoteTracks: [] };
 
 async function request(path, opts = {}) {
   let response;
@@ -257,6 +257,7 @@ async function releasePlayback() {
   }
   for (const url of ui.trackURLs) URL.revokeObjectURL(url);
   ui.trackURLs = [];
+  ui.remoteTracks = [];
   if (id) {
     await fetch("/api/v1/hls/" + encodeURIComponent(id), { method: "DELETE", credentials: "same-origin" }).catch(() => {});
   }
@@ -404,10 +405,15 @@ async function seekTo(absolute, audioStream) {
 }
 function installTorrentTracks() {
   if (!ui.player) return;
+  for (const old of ui.remoteTracks) {
+    try { ui.player.removeRemoteTextTrack(old); } catch { /* stale track after source change */ }
+  }
+  ui.remoteTracks = [];
   for (const file of ui.captions) {
     const track = { kind: "subtitles", src: trackURL(file), srclang: "en",
       label: file.name.split("/").pop() };
-    ui.player.addRemoteTextTrack(track, false);
+    const added = ui.player.addRemoteTextTrack(track, false);
+    if (added) ui.remoteTracks.push(added.track || added);
   }
 }
 async function loadCaptions(file) {
