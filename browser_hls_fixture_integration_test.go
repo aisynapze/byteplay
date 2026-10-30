@@ -58,7 +58,14 @@ func TestBrowserHLSFixtureHost(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("fixture seeder not ready")
 	}
-	leecher, err := torrent.NewClient(isolatedTorrentConfig(t.TempDir(), false))
+	// Exercise the production torrent write-budget wrapper and HLS under
+	// one shared ledger, not just independently passing API mocks.
+	manager := newHLSManager(t.TempDir(), encoder)
+	leecherRoot := t.TempDir()
+	manager.torrentRoot = leecherRoot
+	leecherConfig := isolatedTorrentConfig(leecherRoot, false)
+	leecherConfig.DefaultStorage = newBudgetTorrentStorage(leecherRoot, manager)
+	leecher, err := torrent.NewClient(leecherConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +79,6 @@ func TestBrowserHLSFixtureHost(t *testing.T) {
 	sessions.Store(hash, &TorrentSession{Client: leecher, Torrent: downloaded, LastUsed: time.Now(), ProbeCache: map[int]*ProbeResult{}})
 	defer sessions.Delete(hash)
 
-	manager := newHLSManager(t.TempDir(), encoder)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/torrent/add", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
