@@ -59,34 +59,34 @@ type hlsCreateRequest struct {
 	AudioStream *int   `json:"audioStream"`
 }
 type hlsPlayback struct {
-	mu            sync.Mutex
-	id            string
-	generation    int
-	startSeconds  float64
-	probe         *ProbeResult
-	paused        bool
-	pauseTimer    *time.Timer
-	lastDemand    time.Time
-	sessionID     string
-	fileIndex     int
-	selectedAudio *int
-	dir           string
-	session       *TorrentSession
-	source        MediaSource
-	ctx           context.Context
-	cancel        context.CancelFunc
-	stopOwner     func()
-	done          chan struct{}
-	state         string
-	mode          *string
-	duration      *float64
-	segments      int
-	playlistReady bool
+	mu                  sync.Mutex
+	id                  string
+	generation          int
+	startSeconds        float64
+	probe               *ProbeResult
+	paused              bool
+	pauseTimer          *time.Timer
+	lastDemand          time.Time
+	sessionID           string
+	fileIndex           int
+	selectedAudio       *int
+	dir                 string
+	session             *TorrentSession
+	source              MediaSource
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	stopOwner           func()
+	done                chan struct{}
+	state               string
+	mode                *string
+	duration            *float64
+	segments            int
+	playlistReady       bool
 	startupCachePercent int
-	err           *hlsError
-	progress      MediaSourceProgress
-	peers         int
-	rate          downloadRateSampler
+	err                 *hlsError
+	progress            MediaSourceProgress
+	peers               int
+	rate                downloadRateSampler
 }
 type hlsManager struct {
 	mu              sync.RWMutex
@@ -138,10 +138,10 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 	}
 	s := hlsStatus{PlaybackID: j.id, State: j.state, Mode: j.mode, Generation: generation,
 		PlaylistReady: j.playlistReady, StatusURL: "/api/v1/hls/" + j.id + "/status",
-		StartupCachePercent: j.startupCachePercent,
-		StartupCacheReady: startupCacheReached(j.progress.FileBytesTotal, j.progress.FileBytesCompleted, j.startupCachePercent),
+		StartupCachePercent:       j.startupCachePercent,
+		StartupCacheReady:         startupCacheReached(j.progress.FileBytesTotal, j.progress.FileBytesCompleted, j.startupCachePercent),
 		StartupCacheBytesRequired: requiredStartupBytes(j.progress.FileBytesTotal, j.startupCachePercent),
-		DurationSeconds: j.duration, StartSeconds: j.startSeconds, SegmentsReady: j.segments,
+		DurationSeconds:           j.duration, StartSeconds: j.startSeconds, SegmentsReady: j.segments,
 		TorrentBytesCompleted: j.progress.TorrentBytesCompleted, TorrentBytesTotal: j.progress.TorrentBytesTotal,
 		SelectedFileBytesTotal: j.progress.FileBytesTotal,
 		DownloadBytesPerSecond: j.rate.value, Peers: j.peers, Error: j.err}

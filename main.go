@@ -433,15 +433,15 @@ func init() {
 	if _, err := os.Stat("config/settings.json"); os.IsNotExist(err) {
 		log.Println("settings.json not found, creating default settings")
 		defaultSettings := Settings{
-			EnableProxy:    false,
-			ProxyURL:       "",
-			EnableProwlarr: false,
-			ProwlarrHost:   "",
-			ProwlarrApiKey: "",
-			EnableJackett:  false,
+			EnableProxy:         false,
+			ProxyURL:            "",
+			EnableProwlarr:      false,
+			ProwlarrHost:        "",
+			ProwlarrApiKey:      "",
+			EnableJackett:       false,
 			StartupCachePercent: startupCachePercentPtr(defaultStartupCachePercent),
-			JackettHost:    "",
-			JackettApiKey:  "",
+			JackettHost:         "",
+			JackettApiKey:       "",
 		}
 		// Create the config directory if it doesn't exist
 		if err := os.MkdirAll("config", 0700); err != nil {

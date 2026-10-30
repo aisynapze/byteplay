@@ -13,7 +13,9 @@ const defaultStartupCachePercent = 9
 func startupCachePercentPtr(v int) *int { return &v }
 
 func configuredStartupCachePercent(s Settings) int {
-	if s.StartupCachePercent == nil { return defaultStartupCachePercent }
+	if s.StartupCachePercent == nil {
+		return defaultStartupCachePercent
+	}
 	return *s.StartupCachePercent
 }
 func startupCachePercent() int {
@@ -24,28 +26,44 @@ func startupCachePercent() int {
 
 // Splitting the product avoids overflow on very large file sizes.
 func requiredStartupBytes(total int64, percent int) int64 {
-	if total <= 0 || percent <= 0 { return 0 }
-	if percent >= 100 { return total }
+	if total <= 0 || percent <= 0 {
+		return 0
+	}
+	if percent >= 100 {
+		return total
+	}
 	return (total/100)*int64(percent) + ((total%100)*int64(percent)+99)/100
 }
 func startupCacheReached(total, completed int64, percent int) bool {
-	if percent <= 0 { return true }
+	if percent <= 0 {
+		return true
+	}
 	return total > 0 && completed >= requiredStartupBytes(total, percent)
 }
 func startupPieceRange(offset, total, pieceSize int64, percent int) (int, int, bool) {
 	need := requiredStartupBytes(total, percent)
-	if need <= 0 || pieceSize <= 0 || offset < 0 { return 0, 0, false }
+	if need <= 0 || pieceSize <= 0 || offset < 0 {
+		return 0, 0, false
+	}
 	endOffset := offset + need
-	if endOffset < offset { return 0, 0, false }
+	if endOffset < offset {
+		return 0, 0, false
+	}
 	first, last := offset/pieceSize, endOffset/pieceSize
-	if endOffset%pieceSize != 0 { last++ }
+	if endOffset%pieceSize != 0 {
+		last++
+	}
 	return int(first), int(last), last > first
 }
 func prefetchStartupPieces(source MediaSource, percent int) {
-	if source.file == nil || source.torrent == nil || source.torrent.Info() == nil { return }
+	if source.file == nil || source.torrent == nil || source.torrent.Info() == nil {
+		return
+	}
 	begin, end, ok := startupPieceRange(source.file.Offset(), source.file.Length(),
 		source.torrent.Info().PieceLength, percent)
-	if ok { source.torrent.DownloadPieces(begin, end) }
+	if ok {
+		source.torrent.DownloadPieces(begin, end)
+	}
 }
 
 // Existing /api/v1/settings and provider endpoints remain backward compatible.
@@ -56,7 +74,9 @@ func playbackSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-	var body struct { StartupCachePercent *int `json:"startupCachePercent"` }
+	var body struct {
+		StartupCachePercent *int `json:"startupCachePercent"`
+	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil {
