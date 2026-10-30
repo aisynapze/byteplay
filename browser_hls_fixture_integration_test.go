@@ -35,6 +35,9 @@ func TestBrowserHLSFixtureHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	ffmpegPath, ffprobePath = encoder, prober
+	// The fixture executes Go tests rather than main(), so it must mirror
+	// the production checkFFmpeg() capability flag for /torrent/{id}/probe.
+	ffmpegAvailable = true
 	info := metainfo.Info{PieceLength: 256 << 10}
 	if err := info.BuildFromFilePath(root); err != nil {
 		t.Fatal(err)

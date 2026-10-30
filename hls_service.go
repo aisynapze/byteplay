@@ -306,6 +306,10 @@ func (m *hlsManager) run(job *hlsPlayback) {
 		}
 		return
 	}
+	// The HLS worker already completed FFprobe successfully. Make that
+	// result available to the legacy /probe endpoint so the browser audio
+	// selector does not launch a redundant (and potentially stalled) probe.
+	cacheSessionProbe(job.session, job.fileIndex, probe)
 	profile, err := MediaProfileFromProbe(probe, job.selectedAudio)
 	if err != nil {
 		job.setError("failed", "unsupported_media", "Selected media has no supported video/audio streams")
@@ -623,4 +627,16 @@ func (m *hlsManager) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+func cacheSessionProbe(session *TorrentSession, fileIndex int, probe *ProbeResult) {
+	if session == nil || fileIndex < 0 || probe == nil {
+		return
+	}
+	session.ProbeMu.Lock()
+	defer session.ProbeMu.Unlock()
+	if session.ProbeCache == nil {
+		session.ProbeCache = make(map[int]*ProbeResult)
+	}
+	session.ProbeCache[fileIndex] = probe
 }

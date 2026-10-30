@@ -167,3 +167,24 @@ func TestHLSUnknownAssetReturnsStructured404(t *testing.T) {
 		t.Fatalf("unknown HLS job: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestHLSProbeResultIsAvailableForAudioTrackSelection(t *testing.T) {
+	session := &TorrentSession{}
+	probe := &ProbeResult{Duration: 1800, Streams: []ProbeStream{
+		{Index: 0, Type: "video", Codec: "h264"},
+		{Index: 1, Type: "audio", Codec: "aac"},
+		{Index: 2, Type: "audio", Codec: "aac"},
+	}}
+	cacheSessionProbe(session, 4, probe)
+	session.ProbeMu.Lock()
+	actual := session.ProbeCache[4]
+	session.ProbeMu.Unlock()
+	if actual == nil || len(actual.Streams) != 3 ||
+		actual.Streams[1].Index != 1 || actual.Streams[2].Index != 2 {
+		t.Fatalf("HLS probe cache lost distinct audio stream indexes: %+v", actual)
+	}
+	cacheSessionProbe(session, -1, nil)
+	if len(session.ProbeCache) != 1 {
+		t.Fatalf("invalid probe altered session cache: %+v", session.ProbeCache)
+	}
+}

@@ -8,7 +8,7 @@ const el = (id) => document.getElementById(id);
 const ui = { session: null, files: [], videos: [], captions: [], selected: null, playback: null,
   status: null, player: null, poll: null, token: 0, wantPlay: true,
   browser: "waiting", attachedGeneration: 0, expectedGeneration: 0, trackURLs: [], lastKnownTime: 0,
-  suppressEvents: false, probe: null, provider: null, remoteTracks: [],
+  suppressEvents: false, probe: null, probeLoading: false, probeNextAttempt: 0, provider: null, remoteTracks: [],
   source: null, hasPlayed: false, historySavedAt: 0, pendingResume: 0,
   initialPlaybackGeneration: 0 };
 
@@ -317,15 +317,21 @@ async function attachReady(status) {
   }
 }
 async function refreshProbe(token) {
-  if (!ui.session || !ui.selected) return;
+  if (!ui.session || !ui.selected || ui.probe || ui.probeLoading ||
+      Date.now() < ui.probeNextAttempt) return;
+  ui.probeLoading = true;
+  ui.probeNextAttempt = Date.now() + 3000;
   try {
     const data = await request("/api/v1/torrent/" + encodeURIComponent(ui.session) + "/probe/" + ui.selected.index);
     if (token !== ui.token) return;
+    if (!data || !Array.isArray(data.streams)) throw new Error("Media probe incomplete");
     ui.probe = data;
     renderAudio();
     renderInfo();
   } catch {
-    // Probe can still be pending; playback status reports the authoritative HLS failure.
+    // A temporary metadata/probe failure is retried after HLS is ready.
+  } finally {
+    ui.probeLoading = false;
   }
 }
 async function pollStatus(token) {
@@ -354,7 +360,12 @@ async function pollStatus(token) {
         return;
       }
     }
-    if (status.playlistReady) await attachReady(status);
+    if (status.playlistReady) {
+      await attachReady(status);
+      // The server caches the HLS worker's successful probe. Retry only
+      // until metadata arrives; do not block playback on this optional UI.
+      if (!ui.probe) void refreshProbe(token);
+    }
   } catch (error) {
     if (token !== ui.token) return;
     showError("bp-watch-error", error.message);
@@ -404,6 +415,8 @@ async function startFile(file, resumeSeconds = 0) {
   await releasePlayback();
   ui.selected = file;
   ui.probe = null;
+  ui.probeLoading = false;
+  ui.probeNextAttempt = 0;
   ui.lastKnownTime = Number.isFinite(resumeSeconds) && resumeSeconds > 0 ? resumeSeconds : 0;
   ui.pendingResume = ui.lastKnownTime;
   ui.historySavedAt = 0;
@@ -432,7 +445,6 @@ async function startFile(file, resumeSeconds = 0) {
     ui.status = ticket;
     setStage(ticket);
     pollStatus(token);
-    refreshProbe(token);
   } catch (error) {
     if (token !== ui.token) return;
     showError("bp-watch-error", error.message);
