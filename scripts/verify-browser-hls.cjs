@@ -66,7 +66,15 @@ async function run() {
     assert.ok(playlists.some(x=>x.status===200),"browser did not fetch an HLS playlist");
     assert.ok(segments.some(x=>x.status===200),"browser did not fetch HLS TS segments");
     assert.deepEqual(errors,[],"unhandled browser JavaScript exception");
+    // A Played entry is created only after real browser media playback.
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("byteplay.played.v1") || "[]"));
+    assert.ok(stored.some(item => item.sessionId === sessionId &&
+      item.title.endsWith("clip.mp4") && item.playedAt > 0),
+      "decoded Chrome playback did not persist browser-local Played history");
     await page.screenshot({path:path.join(OUT,"real-hls-playback-1440x900.png"),fullPage:true});
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".bp-played-item").waitFor({ state: "visible", timeout: 10000 });
+    assert.match(await page.locator(".bp-played-item h3").first().innerText(), /clip\.mp4$/);
     console.log("BYTEPLAY_REAL_BROWSER_HLS_PASS "+JSON.stringify({
       decoded,playlist200:playlists.filter(x=>x.status===200).length,
       segments200:segments.filter(x=>x.status===200).length}));
