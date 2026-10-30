@@ -357,7 +357,7 @@ async function seekTo(absolute, audioStream) {
   setOverlay("Seeking video", "Starting the HLS stream at " + formatTime(absolute));
   clearError("bp-watch-error");
   try {
-    await window.BytePlayTimeline.seekAbsolute({
+    const seekResult = await window.BytePlayTimeline.seekAbsolute({
       targetSeconds: absolute,
       generationStartSeconds: ui.status.startSeconds || 0,
       buffered: ui.player?.buffered(),
@@ -373,6 +373,10 @@ async function seekTo(absolute, audioStream) {
     });
     if (token !== ui.token) return;
     ui.lastKnownTime = absolute;
+    if (seekResult.type === "buffered") {
+      setOverlay("", "", false);
+      return;
+    }
     // Attachment is deferred until a status exposes two finalized segments.
     ui.attachedGeneration = 0;
     ui.suppressEvents = true;
