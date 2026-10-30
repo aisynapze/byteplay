@@ -1,12 +1,12 @@
 import {
   MAX_TORRENT_BYTES, MAX_CAPTION_BYTES, validateTorrentFile, validateCaptionFile,
-  readableError, videoFiles, captionFiles, formatBytes, formatTime, stateText, srtToVtt
+  readableError, videoFiles, captionFiles, formatBytes, formatTime, stateText, srtToVtt, isCurrentHLSStatus
 } from "./byteplay-core.mjs";
 
 const el = (id) => document.getElementById(id);
 const ui = { session: null, files: [], videos: [], captions: [], selected: null, playback: null,
   status: null, player: null, poll: null, token: 0, wantPlay: true,
-  browser: "waiting", attachedGeneration: 0, trackURLs: [], lastKnownTime: 0,
+  browser: "waiting", attachedGeneration: 0, expectedGeneration: 0, trackURLs: [], lastKnownTime: 0,
   suppressEvents: false, probe: null, provider: null };
 
 async function request(path, opts = {}) {
@@ -210,6 +210,11 @@ async function pollStatus(token) {
   try {
     const status = await request("/api/v1/hls/" + encodeURIComponent(ui.playback) + "/status");
     if (token !== ui.token) return;
+    if (!isCurrentHLSStatus(status, ui.expectedGeneration)) {
+      ui.poll = setTimeout(() => pollStatus(token), 300);
+      return;
+    }
+    ui.expectedGeneration = status.generation;
     ui.status = status;
     setStage(status);
     updateSeekRange(status);
@@ -236,6 +241,7 @@ async function releasePlayback() {
   ui.playback = null;
   ui.status = null;
   ui.attachedGeneration = 0;
+  ui.expectedGeneration = 0;
   if (ui.player) {
     ui.suppressEvents = true;
     ui.player.dispose();
@@ -281,6 +287,7 @@ async function startFile(file) {
       return;
     }
     ui.playback = ticket.playbackId;
+    ui.expectedGeneration = ticket.generation || 1;
     ui.status = ticket;
     setStage(ticket);
     pollStatus(token);
@@ -352,8 +359,8 @@ async function sendControl(action) {
 async function seekTo(absolute, audioStream) {
   if (!ui.playback || !ui.status || !Number.isFinite(absolute)) return;
   const token = ui.token;
-  const playing = ui.player && !ui.player.paused();
-  ui.wantPlay = Boolean(playing);
+  // Preserve explicit browser play/pause intent across buffering and seek restarts.
+  // A buffering player may be temporarily paused even when play was requested.
   setOverlay("Seeking video", "Starting the HLS stream at " + formatTime(absolute));
   clearError("bp-watch-error");
   try {
@@ -377,7 +384,12 @@ async function seekTo(absolute, audioStream) {
       setOverlay("", "", false);
       return;
     }
-    // Attachment is deferred until a status exposes two finalized segments.
+    ui.expectedGeneration = seekResult.generation;
+    ui.status = {
+      ...ui.status, generation: seekResult.generation, state: "preparing",
+      playlistReady: false, playlistUrl: null, playlistURL: null, startSeconds: absolute
+    };
+    // Never reattach an obsolete playlist while the generation is restarting.
     ui.attachedGeneration = 0;
     ui.suppressEvents = true;
     ui.player?.pause();
@@ -386,6 +398,7 @@ async function seekTo(absolute, audioStream) {
   } catch (error) {
     if (token !== ui.token) return;
     showError("bp-watch-error", error.message);
+    if (ui.status?.playlistReady) setOverlay("", "", false);
     el("bp-retry").hidden = false;
   }
 }
