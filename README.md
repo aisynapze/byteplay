@@ -65,7 +65,7 @@ docker run -d --name byteplay \
 
 Open <http://127.0.0.1:3347> and authenticate. The Docker image rebuilds CSS using the locked npm dependencies, compiles the Go executable with module/build caches, and ships FFmpeg/FFprobe without Node or the Go toolchain. For access from other computers, deliberately change the host-side `-p` binding **only** after configuring authentication and an appropriate HTTPS ingress.
 
-`config/settings.json` stores persistent settings; `torrent-data` stores downloaded torrent pieces. The HLS cache lives in `./hls-cache` inside the application runtime (separate from persistent `torrent-data`). Its sessions expire after 15 minutes with no genuine demand, and superseded HLS generations are removed. The combined disk watermark counts both roots. It is not an archival media store and does not yet provide atomic disk-space reservations or crash-orphan cleanup. Container teardown or cache purge may remove temporary playback output; do not treat it as archival media storage.
+`config/settings.json` stores persistent settings; `torrent-data` stores downloaded torrent pieces. The HLS cache lives in `./hls-cache` inside the application runtime (separate from persistent `torrent-data`). Its sessions expire after 15 minutes with no genuine demand, and superseded HLS generations are removed. The combined disk watermark counts both roots. Competing HLS generations reserve their permitted output space before FFmpeg runs; already written bytes count inside the reservation, and the reservation is released on worker exit. At startup BytePlay removes abandoned, internally named HLS playback directories; unrelated files and symlinks are preserved. **This recovery assumes one BytePlay instance owns the HLS directory**: do not share one HLS cache volume between independently running servers. This is not archival storage, and independent torrent downloads are not yet governed by the HLS reservation ledger. Container teardown or cache purge may remove temporary playback output; do not treat it as archival media storage.
 
 The intended future published image name is `ghcr.io/aisynapze/byteplay`, contingent on release certification. Do not assume a `:latest` tag is already published or production-approved.
 
@@ -77,7 +77,7 @@ The intended future published image name is `ghcr.io/aisynapze/byteplay`, contin
 | `BITPLAY_AUTH_USERNAME` / `BITPLAY_AUTH_PASSWORD` | Required pair for an authenticated network listener; protects UI, API, settings and streaming routes |
 | `BITPLAY_ALLOW_UNAUTHENTICATED_LAN=1` | Dangerous development-only bypass; never use for a public deployment |
 | `BITPLAY_MAX_REMUX` | Existing remux concurrency control (the new HLS worker also has explicit bounded slots) |
-| `BITPLAY_CACHE_MAX_BYTES` | Positive-integer combined budget for `torrent-data` and `hls-cache`; default 10737418240 bytes (10 GiB). A measured high-water limit, not a guarantee of atomic concurrent reservations. |
+| `BITPLAY_CACHE_MAX_BYTES` | Positive-integer combined budget for `torrent-data` and `hls-cache`; default 10737418240 bytes (10 GiB). HLS-worker reservations are atomic; torrent writers remain independent, so this is not a strict whole-cache allocation guarantee. |
 
 The Settings UI retains proxy, search-provider credentials, connection tests, and maintenance actions. Secret fields are redacted from settings reads; successful configuration does **not** establish that all host traffic is routed through a VPN. Avoid copying real credentials into CI logs or bug reports.
 
