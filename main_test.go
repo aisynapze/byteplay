@@ -200,7 +200,7 @@ func TestProxyTestErrorNeverExposesCredentials(t *testing.T) {
 
 func TestSettingsEndpointsRejectOversizedBodies(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name    string
 		handler http.HandlerFunc
 	}{
 		{"proxy-test", testProxyConnection},
