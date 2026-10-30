@@ -743,6 +743,16 @@
           </div>
         </form>
         <div class="tab flex flex-col gap-6 hidden" data-tab="3">
+          <form id="bp-startup-cache-form" class="flex flex-col gap-2">
+            <label for="bp-startup-cache-percent" class="text-sm font-semibold">Minimum selected-video cache before playback (%)</label>
+            <p class="text-sm text-muted-foreground">Default: 9%. Download this fraction of the selected video before playback. 0% disables the extra wait. Larger files may need more time or cache space.</p>
+            <div class="flex items-center gap-3">
+              <input type="number" min="0" max="100" step="1" required id="bp-startup-cache-percent" value="9"
+                class="w-24 rounded-md border bg-muted px-3 py-2" />
+              <button class="btn !h-11" type="submit" id="bp-startup-cache-save">Save playback setting</button>
+            </div>
+            <p id="bp-startup-cache-feedback" role="status" aria-live="polite" class="text-sm text-muted-foreground"></p>
+          </form>
           <div class="flex flex-col gap-2">
             <div class="flex items-center justify-between">
               <span class="text-muted-foreground text-sm font-semibold"

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  validateTorrentFile, validateCaptionFile, MAX_TORRENT_BYTES, videoFiles, captionFiles,
+  canAttachHLS, validateTorrentFile, validateCaptionFile, MAX_TORRENT_BYTES, videoFiles, captionFiles,
   readableError, formatBytes, formatTime, stateText, srtToVtt, isCurrentHLSStatus
 } from "./byteplay-core.mjs";
 
@@ -64,4 +64,12 @@ test("status from superseded generation cannot reattach its old playlist", () =>
   assert.equal(isCurrentHLSStatus({ generation: 2, playlistReady: false }, 2), true);
   assert.equal(isCurrentHLSStatus({ generation: 3, playlistReady: true }, 2), true);
   assert.equal(isCurrentHLSStatus({ state: "preparing" }, 2), false);
+});
+
+test("selected-file cache threshold keeps ready HLS detached until satisfied", () => {
+  const ready = {playlistReady:true, playlistUrl:"/api/v1/hls/id/g/1/index.m3u8"};
+  assert.equal(canAttachHLS({...ready, startupCacheReady:false}),false);
+  assert.equal(canAttachHLS({...ready, startupCacheReady:true}),true);
+  assert.equal(canAttachHLS({...ready, startupCacheReady:true, playlistReady:false}),false);
+  assert.equal(canAttachHLS({...ready, playlistUrl:null}),false);
 });

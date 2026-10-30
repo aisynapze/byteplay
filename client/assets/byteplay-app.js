@@ -1,6 +1,6 @@
 import {
   MAX_TORRENT_BYTES, MAX_CAPTION_BYTES, validateTorrentFile, validateCaptionFile,
-  readableError, videoFiles, captionFiles, formatBytes, formatTime, stateText, srtToVtt, isCurrentHLSStatus
+  readableError, videoFiles, captionFiles, formatBytes, formatTime, stateText, srtToVtt, isCurrentHLSStatus, canAttachHLS
 } from "./byteplay-core.mjs";
 import { readPlayed, savePlayed, removePlayed, clearPlayed, replaySeconds } from "./played-history.mjs";
 
@@ -158,6 +158,15 @@ function setStage(status) {
   const total = status?.selectedFileBytesTotal, downloaded = status?.selectedFileBytesCompleted;
   putText("bp-progress", total > 0 && downloaded != null
     ? Math.min(100, 100 * downloaded / total).toFixed(1) + "%" : "—");
+  if (status?.startupCacheReady === false && !state.error) {
+    const target = status.startupCachePercent ?? 9;
+    const cached = total > 0 && downloaded != null ? Math.min(100, 100 * downloaded / total) : 0;
+    const label = "Caching selected video " + cached.toFixed(1) + "% / " + target + "%";
+    putText("bp-stage", label);
+    putText("bp-player-state", "Buffering before playback");
+    putText("bp-player-detail", "Waiting for " + target + "% of the selected video to be cached.");
+    setOverlay("Buffering before playback", label, true);
+  }
   if (state.error) {
     showError("bp-watch-error", state.detail);
     el("bp-retry").hidden = false;
@@ -348,7 +357,7 @@ async function pollStatus(token) {
     setStage(status);
     updateSeekRange(status);
     renderInfo();
-    if (status.playlistReady && ui.pendingResume > 0) {
+    if (canAttachHLS(status) && ui.pendingResume > 0) {
       // Resume by an explicit generation restart before exposing the old
       // playlist. This preserves absolute positions without modifying VHS.
       const resumeAt = Math.min(ui.pendingResume,
@@ -360,7 +369,7 @@ async function pollStatus(token) {
         return;
       }
     }
-    if (status.playlistReady) {
+    if (canAttachHLS(status)) {
       await attachReady(status);
       // The server caches the HLS worker's successful probe. Retry only
       // until metadata arrives; do not block playback on this optional UI.
@@ -612,6 +621,9 @@ async function loadProvider() {
     const settings = await request("/api/v1/settings");
     ui.provider = settings.enableProwlarr ? "prowlarr" : settings.enableJackett ? "jackett" : null;
     el("bp-search-area").hidden = !ui.provider;
+    if (Number.isInteger(settings.startupCachePercent)) {
+      el("bp-startup-cache-percent").value = String(settings.startupCachePercent);
+    }
   } catch {
     el("bp-search-area").hidden = true;
   }
@@ -674,7 +686,35 @@ for (const type of ["dragleave", "drop"]) {
 drop.addEventListener("drop", (event) => {
   if (event.dataTransfer?.files?.[0]) uploadTorrent(event.dataTransfer.files[0]);
 });
-el("bp-settings").addEventListener("click", () => el("settings-btn").click());
+el("bp-settings").addEventListener("click", () => {
+  el("settings-btn").click();
+  void loadProvider();
+});
+el("bp-startup-cache-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = el("bp-startup-cache-percent");
+  const feedback = el("bp-startup-cache-feedback");
+  const value = input.value.trim();
+  const percent = Number(value);
+  if (!value || !Number.isInteger(percent) || percent < 0 || percent > 100) {
+    feedback.textContent = "Enter a whole number from 0 to 100.";
+    return;
+  }
+  const save = el("bp-startup-cache-save");
+  save.disabled = true;
+  try {
+    const saved = await request("/api/v1/settings/playback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startupCachePercent: percent })
+    });
+    input.value = String(saved.startupCachePercent);
+    feedback.textContent = "Saved. New video sessions wait for " + saved.startupCachePercent + "% caching.";
+  } catch (error) {
+    feedback.textContent = error.message;
+  } finally {
+    save.disabled = false;
+  }
+});
 el("bp-played-clear").addEventListener("click", () => {
   if (!window.confirm("Clear played videos from this browser?")) return;
   if (clearPlayed(window.localStorage)) { clearError("bp-played-error"); renderPlayed(); }

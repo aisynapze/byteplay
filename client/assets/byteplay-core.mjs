@@ -37,6 +37,10 @@ export function formatTime(seconds) {
   const secs = String(whole % 60).padStart(2, "0");
   return hours ? hours + ":" + minutes + ":" + secs : String(Math.floor(whole / 60)).padStart(2, "0") + ":" + secs;
 }
+export function canAttachHLS(status) {
+  return Boolean(status?.playlistReady && status?.startupCacheReady !== false &&
+    (status?.playlistURL || status?.playlistUrl));
+}
 export function stateText(server, browser = "waiting") {
   if (server?.error?.message) return { title: "Stream unavailable", detail: server.error.message, error: true };
   switch (server?.state) {

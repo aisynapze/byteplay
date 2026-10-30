@@ -77,6 +77,10 @@ Open <http://127.0.0.1:3347> and authenticate. The Docker image rebuilds CSS usi
 
 The intended future published image name is `ghcr.io/aisynapze/byteplay`, contingent on release certification. Do not assume a `:latest` tag is already published or production-approved.
 
+## Playback startup cache threshold
+
+**Default: 9% of the selected video's downloaded bytes.** BytePlay requests the first needed selected-file pieces alongside FFprobe/FFmpeg and attaches Video.js only once this byte threshold and at least two finalized HLS segments are ready. This is **not** a percentage of the entire torrent or HLS output directory. Settings → Maintenance permits **0–100%**; **0% disables the additional startup gate**. It persists in `config/settings.json` and applies only to new playbacks. For a large selected video, 9% may require hundreds of MiB, slow startup or exceed the cache quota; this does not guarantee no later rebuffering.
+
 ## Settings and safety
 
 | Environment variable | Purpose |

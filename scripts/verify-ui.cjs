@@ -54,6 +54,20 @@ async function run() {
       assert.match(await page.locator("#bp-home-error").innerText(), /Enter a magnet link/);
       await page.locator("#bp-settings").click();
       assert.equal(await page.locator("#settings-model").isVisible(), true, "legacy settings dialog must remain functional");
+      if (viewport.width === 1920) {
+        await page.locator('#settings-model .tab-btn[data-index="3"]').click();
+        const cached = page.locator("#bp-startup-cache-percent");
+        assert.equal(await cached.inputValue(), "9");
+        await cached.fill("12");
+        await page.locator("#bp-startup-cache-save").click();
+        await page.waitForFunction(() => document.getElementById("bp-startup-cache-feedback")?.textContent.includes("Saved."));
+        const stored = await page.request.get(BASE + "/api/v1/settings");
+        assert.equal((await stored.json()).startupCachePercent, 12);
+        await cached.fill("9");
+        await page.locator("#bp-startup-cache-save").click();
+        await page.waitForFunction(async () => (await (await fetch("/api/v1/settings")).json()).startupCachePercent === 9);
+        await page.locator('#settings-model .tab-btn[data-index="0"]').click();
+      }
       // The legacy modal must never inherit dark-on-dark / light-on-light
       // text from the global theme. Check both active/inactive buttons and
       // every save/test action using actual computed browser colors.
