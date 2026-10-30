@@ -500,6 +500,13 @@ func main() {
 
 	checkFFmpeg()
 	activeHLS.ffmpeg = ffmpegPath
+	// Own the cache for the entire process lifetime. Without this lock a
+	// second instance could delete an active HLS generation at startup.
+	ownership, err := acquireHLSCacheOwnership(activeHLS.root)
+	if err != nil {
+		log.Fatalf("HLS cache ownership: %v", err)
+	}
+	defer ownership.Close()
 	// No playback worker can exist before serving requests. Purge only
 	// verified, internally named HLS outputs from an interrupted prior run.
 	if err := activeHLS.recoverAbandonedCache(); err != nil {
