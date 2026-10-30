@@ -3,14 +3,17 @@
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
-const { chromium }=require("playwright");
+const { chromium, firefox }=require("playwright");
+const BROWSER=process.env.BYTEPLAY_BROWSER_ENGINE || "chrome";
 
 const BASE=process.env.BYTEPLAY_E2E_URL || "http://127.0.0.1:3347";
 const OUT=process.env.BYTEPLAY_SCREENSHOT_DIR || "/tmp/byteplay-browser-media";
 fs.mkdirSync(OUT,{recursive:true});
 
 async function run() {
-  const browser=await chromium.launch({channel:"chrome",headless:true,args:["--autoplay-policy=no-user-gesture-required"]});
+  const browser=BROWSER==="firefox"
+    ? await firefox.launch({headless:true,firefoxUserPrefs:{"media.autoplay.default":0}})
+    : await chromium.launch({channel:"chrome",headless:true,args:["--autoplay-policy=no-user-gesture-required"]});
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   const errors=[], segments=[], playlists=[];
   page.on("pageerror",err=>errors.push(err.message));
@@ -26,7 +29,7 @@ async function run() {
     assert.match(sessionId,/^[0-9a-f]{40}$/);
     await page.goto(BASE,{waitUntil:"domcontentloaded"});
     const supportsAVC=await page.evaluate(()=>Boolean(window.MediaSource?.isTypeSupported?.('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')));
-    assert.equal(supportsAVC,true,"Installed Chrome must support MSE H.264/AAC to run this decoding gate");
+    assert.equal(supportsAVC,true,BROWSER+" must support MSE H.264/AAC for the HLS decode gate");
     await page.locator("#bp-magnet").fill("magnet:?xt=urn:btih:"+sessionId);
     await page.locator("#bp-open").click();
     await page.locator("#bp-watch").waitFor({state:"visible",timeout:20000});
@@ -66,6 +69,16 @@ async function run() {
     assert.ok(playlists.some(x=>x.status===200),"browser did not fetch an HLS playlist");
     assert.ok(segments.some(x=>x.status===200),"browser did not fetch HLS TS segments");
     assert.deepEqual(errors,[],"unhandled browser JavaScript exception");
+    if (BROWSER==="firefox") {
+      // Independently require real Firefox decode and progression, not a
+      // successful playlist fetch, mock metadata or an HLS capability flag.
+      console.log("BYTEPLAY_FIREFOX_REAL_HLS_PASS "+JSON.stringify({
+        decoded, playlist200:playlists.filter(x=>x.status===200).length,
+        segments200:segments.filter(x=>x.status===200).length
+      }));
+      await page.screenshot({path:path.join(OUT,"real-hls-firefox-1440x900.png"),fullPage:true});
+      return;
+    }
     // The synthetic 32-second fixture is often fully buffered before this
     // check. A timebar seek inside that buffer must stay local in Video.js;
     // requiring a new HLS generation here would be a false acceptance oracle.

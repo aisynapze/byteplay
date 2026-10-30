@@ -213,7 +213,7 @@ jobs:
           npm ci
           npm run build
           npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.1
-          npx playwright install --with-deps chrome
+          npx playwright install --with-deps chrome firefox
       - name: Generate royalty-free 32-second H264/AAC fixture and sparse padding
         run: |
           mkdir -p "$RUNNER_TEMP/byteplay-browser-seed"
@@ -253,6 +253,7 @@ jobs:
           done
           if [ "$ready" -ne 1 ]; then echo "Browser fixture failed to become ready"; exit 1; fi
           node scripts/verify-browser-hls.cjs
+          BYTEPLAY_BROWSER_ENGINE=firefox node scripts/verify-browser-hls.cjs
           touch "$BYTEPLAY_BROWSER_STOP_FILE"
           wait "$fixture_pid"
           trap - EXIT
