@@ -10,3 +10,5 @@
 7. Runner policy updated by owner (2026-10-29): use GitHub-hosted `ubuntu-latest` for these quality checks now; consider self-hosted runners later if needed. This supersedes the earlier self-hosted-only constraint for current checks.
 
 8. M6 playback seeks serialize cancel+Wait before publishing a new generation. Retain old generation files until explicit playback teardown but never serve superseded URLs. Keep pause intent from explicit client events, not playlist request frequency; the adapter lives outside Video.js internals. Effective copy-keyframe seek accuracy remains an explicit unverified acceptance gate.
+
+9. M7 keeps the existing settings/proxy/indexer DOM hidden behind the new branded shell until UI parity is verified. New UI is vanilla JS + existing Tailwind and Video.js 8.24.0. Browser smoke metadata/status may be mocked only for deterministic layout checks; real seeded media tests remain separate and required. No new production JS runtime dependency.
