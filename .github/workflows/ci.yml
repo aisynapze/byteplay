@@ -235,7 +235,9 @@ jobs:
         run: docker build --progress=plain -t byteplay:ci .
       - name: Boot with explicit authenticated network binding
         run: |
+          mkdir -p "$RUNNER_TEMP/byteplay-ci-hls"
           docker run -d --name byteplay-ci \
+            -v "$RUNNER_TEMP/byteplay-ci-hls:/app/hls-cache" \
             -p 127.0.0.1:13347:3347 \
             -e BITPLAY_LISTEN_HOST=0.0.0.0 \
             -e BITPLAY_AUTH_USERNAME=ci-test \
@@ -255,6 +257,23 @@ jobs:
           docker exec byteplay-ci ffmpeg -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]'
           docker exec byteplay-ci sh -c 'test -s /app/client/assets/output.css'
           echo BYTEPLAY_DOCKER_AUTH_MEDIA_CSS_PASS
+      - name: Reject second instance sharing the active HLS cache
+        run: |
+          set -e
+          set +e
+          docker run --rm --name byteplay-ci-conflict \
+            -v "$RUNNER_TEMP/byteplay-ci-hls:/app/hls-cache" \
+            -e BITPLAY_LISTEN_HOST=0.0.0.0 \
+            -e BITPLAY_AUTH_USERNAME=ci-test \
+            -e BITPLAY_AUTH_PASSWORD=local-fixture-password \
+            byteplay:ci > "$RUNNER_TEMP/cache-conflict.log" 2>&1
+          code=$?
+          set -e
+          test "$code" -ne 0
+          grep -q 'HLS cache ownership' "$RUNNER_TEMP/cache-conflict.log"
+          curl -fsS --user ci-test:local-fixture-password \
+            http://127.0.0.1:13347/api/v1/capabilities >/dev/null
+          echo BYTEPLAY_SECOND_CACHE_OWNER_REJECTED
       - name: Verify crash recovery only reclaims internally owned HLS directories
         run: |
           set -e
