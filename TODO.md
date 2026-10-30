@@ -1,28 +1,30 @@
 # BytePlay v0.1.1 gate ledger
 
-Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41` — main identical as of 2026-10-29.
+Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41`. Evidence is scoped to the implementation branch. Last **fully passed** workflow at this ledger update: [#145](https://github.com/aisynapze/byteplay/actions/runs/41027137327) on executable commit `5241b88430a89eb8360c442d6cbc89fc06e8cf5e`; Firefox workflow #146 is pending and must not be presumed green.
 
-- [ ] M0 — baseline and tests: NOT VERIFIED
-- [ ] M1 — Phase 0 security: NOT VERIFIED
-- [ ] M2 — Phase 1 session ownership: PARTIAL (infohash dedup/retention, owned reader cancellation, bounded purge/drain, graceful HTTP shutdown all unit/race CI-green; real seeded media and full acceptance pending)
-- [ ] M3 — sequential torrent source: CI VERIFIED (local selected-file 206 range, >200 MiB seeded fixture at 20/100 Mbps with race); full streaming/HLS integration and buffer benchmark pending
-- [ ] M4 — probe and route: CI VERIFIED (codec matrix, FFmpeg argv, finalized H264/AAC HLS from three synthetic local sources); torrent-backed HLS playback pending
-- [ ] M5 — HLS generation: CORE CI VERIFIED (torrent→FFmpeg→Chrome HLS, 2-segment readiness, limited workers, lifecycle). M8 file I/O improved: classic sparse writes are optional for Go and default in Docker; quota guard projects actual piece growth, while default mmap remains conservatively full-file. OPEN: free-space/block-level quota, far-offset long-video testing, RSS/CPU/seek latency and complete acceptance.
-- [ ] M6 — seek and lifecycle: CORE BACKEND CI VERIFIED (generation restart, forward/backward seek and audio selection, stale URLs, explicit pause/resume, 90s grace and no-demand semantics, absolute time adapter unit-tested); STILL OPEN: effective keyframe/PTS accuracy proof, 30-minute MKV/Video.js E2E, real pause/seek/subtitle sync, browser playback integration and resource stress.
-- [ ] M7 — Midnight Current UI: CHROME PLAYBACK AND PLAYED HISTORY GREEN (#41017266001): dark settings modal tab/test/save labels verified WCAG 4.5:1 computed contrast, browser-only bounded 30-entry Played list, actual-playback-triggered persistence across reload, Resume HLS generation seek, Replay from 0, remove/clear, mobile responsive layout, real Chrome H264/AAC streaming. OPEN: Firefox/Safari real playback, full viewport human review/zoom, caption and multi-audio interaction, accessibility certification.
-- [ ] M8 — release certification: PARTIAL — GitHub-hosted CI #41018622199 GREEN 5/5. Verified settings tab/test/save button contrast, browser Played history/Resume/Replay, mmap full-file safety and Docker-default classic sparse file growth with separate Go race tests, actual Chrome HLS decoding, 20/100 Mbps seeded media, authenticated Docker crash/lock validation. OPEN: OS physical disk quota/free-space, 30-minute MKV PTS seek, sustained CPU/RSS/streaming benchmarks, Firefox/Safari/device testing, accessibility, approved deployment and release.
+- [ ] M0 — PARTIAL: fresh-checkout Go/Node/FFmpeg/Docker CI green; full legacy response characterization remains open.
+- [ ] M1 — PARTIAL: loopback/auth, bounded requests, redacted settings and proxy diagnostics tested; SOCKS5 peer/tracker egress isolation, complete SSRF/security review and failure-injection remain open.
+- [ ] M2 — PARTIAL: concurrent infohash dedup, session-owned cancellation, graceful shutdown and bounded purge/drain race tests pass; complete failure matrix and live-inflight metadata cancel certification remain open.
+- [ ] M3 — CORE CI VERIFIED: seeded 20/100 Mbps HTTP 206 and selected-file partial data with race; remote swarm/peak buffer performance remains open.
+- [ ] M4 — CORE CI VERIFIED: probe/copy/audio-transcode/video-transcode route and local finalized MPEG-TS H.264/AAC segments; full incompatible-codec browser matrix remains open.
+- [ ] M5 — CORE CI VERIFIED: actual torrent→FFmpeg→Chrome HLS, two finalized segment readiness, generation guards, shared HLS/legacy FFmpeg process slots, HLS+classic torrent quota admission and cache ownership/recovery. Physical block-level disk accounting/eviction and sustained load remain open.
+- [ ] M6 — CHROME LONG-MEDIA CORE VERIFIED: FFprobe copy-keyframe offset, 30-minute synthetic MKV 10-minute and reverse 2-minute Video.js timeline, two distinct audio indexes, generation restart, real pause and local SRT import. **OPEN:** ±1-second actual decoded PTS/audio-sync oracle, rapid concurrent seeks/orphan stress and full subtitle cue keyboard selection.
+- [ ] M7 — PARTIAL: BytePlay branded responsive home/watch, settings label contrast, browser Played history/Resume/Replay, 11 original viewport checks and 720×450 @ DPR2 reflow proxy, keyboard submission, real Chrome playback green. **OPEN:** Firefox/Safari results, actual browser zoom/manual accessibility and owner visual signoff.
+- [ ] M8 — PARTIAL: #145 all five jobs green, locked Docker, release-quality workflow dependency, authenticated crash/recovery, 30s same-fixture FFmpeg copy-vs-x264 wall/CPU/RSS measurements. **OPEN:** sustained deployment-approved load, physical free space/quota, Firefox/Safari/device matrix, security/accessibility certification and approved tag publication.
 
-- [ ] BP-001: NOT VERIFIED
-- [ ] BP-002: NOT VERIFIED
-- [ ] BP-003: NOT VERIFIED
-- [ ] BP-004: NOT VERIFIED
-- [ ] BP-005: NOT VERIFIED
-- [ ] BP-006: NOT VERIFIED
-- [ ] BP-007: NOT VERIFIED
-- [ ] BP-008: NOT VERIFIED
-- [ ] BP-009: NOT VERIFIED
-- [ ] BP-010: NOT VERIFIED
-- [ ] BP-011: NOT VERIFIED
-- [ ] BP-012: NOT VERIFIED
+## BP-level acceptance — evidence state, not feature-claim percentages
 
-Nothing is DONE without executed acceptance evidence.
+- [ ] BP-001 — PARTIAL: magnet/infohash and .torrent conversion implemented; complete API+UI import matrix remains open.
+- [ ] BP-002 — CORE CI VERIFIED on synthetic local seeded partial-file reads; remote swarms not certified.
+- [ ] BP-003 — CORE CI VERIFIED for copy-mode route, HLS segments and real Chrome decoding.
+- [ ] BP-004 — CORE CI VERIFIED for FFprobe-selected audio-only conversion fixture; browser-specific incompatible-audio fixture remains open.
+- [ ] BP-005 — CORE CI VERIFIED for x264 ultrafast route and segments; real incompatible-codec browser playback remains open.
+- [ ] BP-006 — CORE CI VERIFIED: two finalized segments, generation isolation, unlisted/tmp denial.
+- [ ] BP-007 — PARTIAL: Chrome Video.js real HLS, pause/resume, seeking, audio switching and local subtitle import; full Firefox/Safari/control/keyboard matrix open.
+- [ ] BP-008 — PARTIAL: measured torrent byte-delta speed and null before sample; complete live metric UI acceptance open.
+- [ ] BP-009 — PARTIAL: responsive design and automated reflow proxy; manual WCAG/visual signoff open.
+- [ ] BP-010 — PARTIAL: security/concurrency/cache safeguards pass focused tests; full proxy isolation/security certification open.
+- [ ] BP-011 — CORE CI VERIFIED: Go/race/media/Chrome UI/Docker five-job gates; platform certification open.
+- [ ] BP-012 — PARTIAL: documented legacy endpoints preserved; exhaustive legacy HTTP contract characterization open.
+
+**No BP requirement is fully accepted until every applicable L3 test oracle is executed and recorded. No release/merge has been authorized.**

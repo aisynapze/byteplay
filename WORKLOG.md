@@ -187,3 +187,15 @@
 - Tests prove a 384-byte declared file can receive its initial 32-byte piece with only 128 bytes available, and a far-offset write that would extend beyond the watermark is denied without writing. Separate coverage tests shared HLS/torrent headroom and a piece spanning two files. This demonstrates *sparse apparent-size growth*, not physical block quotas or production throughput.
 - An intermittent disconnected loopback seed in the **race** run #41018173530 was isolated to the local 20Mbps fixture. The harness now permits one fresh leecher/client retry **only** after an actual read-context deadline. Incorrect bytes, missing 206 status, or invalid progress metrics remain immediate failures. The next full run #41018622199 passed.
 - **Open**: physical free-space coordination and block-level quota, large files with far-tail MP4 metadata/30-min MKV GOP accuracy, real memory/CPU/peer load and cache pressure measurements, Firefox/Safari, human accessibility approval and authorized production release.
+
+## 2026-10-30 — M6/M7/M8 continuation after CI #132
+
+- [#133](https://github.com/aisynapze/byteplay/actions/runs/41021442920) **5/5 PASS**: shared legacy/HLS FFmpeg process budget, measured torrent delta rate, proxy test redaction and quality-gated Docker publication.
+- [#134](https://github.com/aisynapze/byteplay/actions/runs/41022060090) **5/5 PASS**: copy-keyframe effective start oracle and Video.js playback-intent alignment.
+- [#136](https://github.com/aisynapze/byteplay/actions/runs/41022573423) **5/5 PASS**: bounded settings requests, truthful SOCKS5 caution, readiness endpoint; formatting corrected before successful gate.
+- [#138](https://github.com/aisynapze/byteplay/actions/runs/41023220118) **5/5 PASS**: real Chrome buffered seeks, pause/resume and SRT import.
+- [#142](https://github.com/aisynapze/byteplay/actions/runs/41024156873) **5/5 PASS**: 30-minute MKV Chrome HLS far seek near 10m; displayed `09:57 / 30:00`. #143 then failed on initially missing audio tracks.
+- [#144](https://github.com/aisynapze/byteplay/actions/runs/41026673267) **5/5 PASS**: HLS result caches FFprobe stream metadata, real fixture capability enabled, audio #1/#2 selectable and reverse seek near 2m displayed `01:57 / 30:00`.
+- [#145](https://github.com/aisynapze/byteplay/actions/runs/41027137327) **5/5 PASS**: 720×450@2 DPR desktop reflow proxy and keyboard submission; synthetic 30s HLS FFmpeg profile: copy 0.07s wall/58,224KiB max RSS; x264 ultrafast 1.49s wall/76,720KiB max RSS.
+- #146 is testing real Firefox H264/AAC HLS decode; do not assert its outcome until complete.
+- **Open:** real Safari/device playback, long-duration PTS ±1s and audible track/caption synchronization, full proxy peer/tracker network-isolation/security validation, sustained resource stress and release approval. No tag/main merge.
