@@ -63,9 +63,10 @@ type budgetTorrentPiece struct {
 }
 
 // A conservative *apparent-file-length* quota (not a filesystem block quota).
-// Calculate exactly how far a default file-backed storage write can extend
-// each .part file. Its projected lengths remain counted through concurrent
-// writes, while bytes already present on disk are not double-counted.
+// Anacrolix's default mmap file backend TRUNCATES each .part file to its FULL
+// declared length on the first write, even if only one chunk was requested.
+// Reserve whole intersected-file lengths BEFORE the first write so one
+// torrent piece cannot silently expand the cache beyond the configured cap.
 func (p *budgetTorrentPiece) WriteAt(data []byte, off int64) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
@@ -171,7 +172,8 @@ func torrentProjectedFileEnds(root string, piece metainfo.Piece, off, length int
 		if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			return nil, fmt.Errorf("torrent piece file path escapes storage root")
 		}
-		projected[path] = max(projected[path], intersectionEnd-fileStart)
+		// mmap openForWrite truncates the entire file to file.Length.
+		projected[path] = max(projected[path], file.Length)
 	}
 	if len(projected) == 0 {
 		return nil, fmt.Errorf("torrent write range does not intersect file metadata")
