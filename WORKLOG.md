@@ -134,3 +134,11 @@
 ## 2026-10-30 — Responsive viewport coverage
 
 - [CI #41009203394](https://github.com/aisynapze/byteplay/actions/runs/41009203394) SUCCESS all five jobs. Browser smoke home 11 spec sizes, watch 5 sizes; actual Google Chrome HLS decoding separately green. Preliminary screenshot audit of 375 phone, 834 tablet, 1024 watch and 844 landscape showed no evident clipping. More M7/M8 acceptance remains OPEN.
+
+## 2026-10-30 — Combined disk watermark and playback lifecycle
+
+- Implemented 15-minute no-demand HLS session reaper and periodic minute sweep. Reclaims map slots, cancels/joins owned worker before deleting its generated HLS directory. Recent sessions are preserved.
+- Fixed generation-1 directory ancestry bug found via seeded integration: all generations now use `hls-cache/{id}/g/{n}`, with distinct directories and cleanup of superseded generations.
+- Added `BITPLAY_CACHE_MAX_BYTES` positive-integer configuration, default 10 GiB, accounting for both downloaded torrent data and HLS output. Fail closed on invalid config; `cache_full` persists after worker cancellation.
+- Initial CI red due to expected gofmt/unused import and a real nested-generation deletion failure; corrected with tests. Latest [#41010209989](https://github.com/aisynapze/byteplay/actions/runs/41010209989): 5/5 green including real seeded HLS, normal/race tests and Chrome decoding.
+- Atomic reservations, crash-orphan recovery, true disk eviction and stress acceptance remain open; no release tag or merge.
