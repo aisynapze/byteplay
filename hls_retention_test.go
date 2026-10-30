@@ -132,3 +132,17 @@ func TestHLSCacheFailureSurvivesCancellation(t *testing.T) {
 		t.Fatalf("cache failure was overwritten by cancellation: %+v", s)
 	}
 }
+
+func TestHLSGenerationPathsAreDisjoint(t *testing.T) {
+	root := t.TempDir()
+	id := strings.Repeat("f", 32)
+	first := hlsGenerationDir(root, id, 1)
+	second := hlsGenerationDir(root, id, 2)
+	if err := os.MkdirAll(second, 0700); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(first, 0700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(second, "segment-000000.ts"), []byte("new"), 0600); err != nil { t.Fatal(err) }
+	if err := os.RemoveAll(first); err != nil { t.Fatal(err) }
+	if got, err := os.ReadFile(filepath.Join(second, "segment-000000.ts")); err != nil || string(got)!="new" {
+		t.Fatalf("cleanup of generation 1 deleted generation 2: %q, %v", got, err)
+	}
+}

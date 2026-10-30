@@ -14,6 +14,12 @@ const defaultHLSRetentionTTL = 15 * time.Minute
 
 var ownedHLSID = regexp.MustCompile("^[a-f0-9]{32}$")
 
+// All generations have disjoint, owned subdirectories. In particular,
+// generation 1 must never be an ancestor of generation 2.
+func hlsGenerationDir(root, id string, generation int) string {
+	return filepath.Join(root, id, "g", strconv.Itoa(generation))
+}
+
 func parseHLSCacheLimit(raw string) (int64, error) {
 	if raw == "" {
 		return maxHLSCacheBytes, nil

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 )
 
@@ -147,7 +146,7 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "Combined torrent/HLS cache budget reached")
 		return
 	}
-	dir := filepath.Join(m.root, id, "g", strconv.Itoa(generation+1))
+	dir := hlsGenerationDir(m.root, id, generation+1)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		releaseTorrentSession(retained)
 		m.mu.Unlock()

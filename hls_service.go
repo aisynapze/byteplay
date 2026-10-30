@@ -247,8 +247,8 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 		writeHLSError(w, 500, "cache_unavailable", "HLS cache directory unavailable")
 		return
 	}
-	dir := filepath.Join(m.root, id)
-	if err := os.Mkdir(dir, 0700); err != nil {
+	dir := hlsGenerationDir(m.root, id, 1)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		m.mu.Unlock()
 		writeHLSError(w, 500, "cache_unavailable", "HLS playback directory unavailable")
 		return
