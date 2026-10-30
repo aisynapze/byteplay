@@ -224,3 +224,40 @@ jobs:
           path: /tmp/byteplay-browser-media
           if-no-files-found: warn
           retention-days: 7
+
+  docker-smoke:
+    name: Docker release image, auth and media capabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deterministic standalone runtime image
+        run: docker build --progress=plain -t byteplay:ci .
+      - name: Boot with explicit authenticated network binding
+        run: |
+          docker run -d --name byteplay-ci \
+            -p 127.0.0.1:13347:3347 \
+            -e BITPLAY_LISTEN_HOST=0.0.0.0 \
+            -e BITPLAY_AUTH_USERNAME=ci-test \
+            -e BITPLAY_AUTH_PASSWORD=local-fixture-password \
+            byteplay:ci
+          for attempt in $(seq 1 45); do
+            if curl -fsS --user ci-test:local-fixture-password \
+              http://127.0.0.1:13347/api/v1/capabilities -o /tmp/byteplay-capabilities.json; then break; fi
+            sleep 1
+          done
+          test -s /tmp/byteplay-capabilities.json
+          python3 -c 'import json; c=json.load(open("/tmp/byteplay-capabilities.json")); assert c["ffmpeg"] is True, c'
+          unauthenticated=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:13347/api/v1/capabilities)
+          test "$unauthenticated" = 401
+          docker exec byteplay-ci ffprobe -version
+          docker exec byteplay-ci ffmpeg -hide_banner -encoders | grep -E '[[:space:]]libx264[[:space:]]'
+          docker exec byteplay-ci ffmpeg -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]'
+          docker exec byteplay-ci sh -c 'test -s /app/client/assets/output.css'
+          echo BYTEPLAY_DOCKER_AUTH_MEDIA_CSS_PASS
+      - name: Container diagnostics
+        if: failure()
+        run: docker logs byteplay-ci 2>&1 | tail -80 || true
+      - name: Stop fixture
+        if: always()
+        run: docker rm -f byteplay-ci || true
