@@ -53,8 +53,10 @@ jobs:
         run: |
           node --check client/assets/index.js
           node --check client/assets/player-timeline.js
-      - name: Absolute timeline adapter tests
-        run: node --test client/assets/player-timeline.test.mjs
+          node --check client/assets/byteplay-app.js
+          node --check client/assets/byteplay-core.mjs
+      - name: Frontend rules and timeline tests
+        run: node --test client/assets/player-timeline.test.mjs client/assets/byteplay-core.test.mjs
       - name: CSS build
         run: |
           npm ci
