@@ -45,6 +45,7 @@
         <nav class="bp-nav" aria-label="Main navigation">
           <a href="#bp-how" id="bp-how-link">How it works</a>
           <a href="#bp-features" id="bp-feature-link">Features</a>
+          <a href="#bp-played" id="bp-played-link">Played</a>
           <button type="button" id="bp-settings" class="bp-outline">Settings <span aria-hidden="true">⚙</span></button>
         </nav>
       </header>
@@ -74,6 +75,15 @@
           <form id="bp-search-form" class="bp-search-form"><label for="bp-query" class="bp-visually-hidden">Search indexer</label><input id="bp-query" type="search" placeholder="Search your connected indexer"><button type="submit" class="bp-secondary">Search</button></form>
           <p id="bp-search-message" role="status"></p>
           <div id="bp-results" class="bp-results"></div>
+        </section>
+        <section class="bp-played" id="bp-played" aria-labelledby="bp-played-title">
+          <div class="bp-played-heading">
+            <div class="bp-section-heading"><span class="bp-eyebrow">YOUR BROWSER</span><h2 id="bp-played-title">Played videos</h2><p>Continue where you left off or replay from the beginning. Only this browser stores your magnet links, filenames and playback positions.</p></div>
+            <button type="button" id="bp-played-clear" class="bp-secondary" hidden>Clear history</button>
+          </div>
+          <p id="bp-played-empty" class="bp-played-empty">Videos you actually play will appear here. Nothing is sent to another account or sync service.</p>
+          <div id="bp-played-list" class="bp-played-list" aria-live="polite"></div>
+          <p id="bp-played-error" class="bp-inline-error" role="alert" hidden></p>
         </section>
         <section class="bp-steps" id="bp-how" aria-labelledby="bp-how-title">
           <div class="bp-section-heading"><span class="bp-eyebrow">SIMPLE BY DESIGN</span><h2 id="bp-how-title">From link to playback</h2></div>

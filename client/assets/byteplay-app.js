@@ -2,12 +2,101 @@ import {
   MAX_TORRENT_BYTES, MAX_CAPTION_BYTES, validateTorrentFile, validateCaptionFile,
   readableError, videoFiles, captionFiles, formatBytes, formatTime, stateText, srtToVtt, isCurrentHLSStatus
 } from "./byteplay-core.mjs";
+import { readPlayed, savePlayed, removePlayed, clearPlayed, replaySeconds } from "./played-history.mjs";
 
 const el = (id) => document.getElementById(id);
 const ui = { session: null, files: [], videos: [], captions: [], selected: null, playback: null,
   status: null, player: null, poll: null, token: 0, wantPlay: true,
   browser: "waiting", attachedGeneration: 0, expectedGeneration: 0, trackURLs: [], lastKnownTime: 0,
-  suppressEvents: false, probe: null, provider: null, remoteTracks: [] };
+  suppressEvents: false, probe: null, provider: null, remoteTracks: [],
+  source: null, hasPlayed: false, historySavedAt: 0, pendingResume: 0 };
+
+
+function rememberPlayback(force = false) {
+  if (!ui.hasPlayed || !ui.session || !ui.selected || !ui.source) return;
+  const now = Date.now();
+  if (!force && now - ui.historySavedAt < 5000) return;
+  let storage;
+  try { storage = window.localStorage; } catch { return; }
+  const duration = ui.status?.durationSeconds ?? ui.probe?.duration;
+  if (savePlayed(storage, {
+    sessionId: ui.session, fileIndex: ui.selected.index, source: ui.source,
+    title: ui.selected.name, size: ui.selected.size,
+    position: Number.isFinite(ui.lastKnownTime) ? ui.lastKnownTime : 0,
+    duration: Number.isFinite(duration) ? duration : null, playedAt: now
+  })) {
+    ui.historySavedAt = now;
+  }
+}
+function renderPlayed() {
+  let list;
+  try { list = readPlayed(window.localStorage); } catch { list = []; }
+  const root = el("bp-played-list");
+  root.replaceChildren();
+  el("bp-played-empty").hidden = list.length > 0;
+  el("bp-played-clear").hidden = list.length === 0;
+  for (const item of list) {
+    const card = document.createElement("article");
+    card.className = "bp-played-item";
+    const title = document.createElement("h3");
+    title.textContent = item.title;
+    const meta = document.createElement("div");
+    meta.className = "bp-played-meta";
+    const progress = item.duration ? Math.min(100, item.position / item.duration * 100) : null;
+    const labels = [item.duration ? formatTime(item.position) + " / " + formatTime(item.duration) :
+      formatTime(item.position) + " played", formatBytes(item.size),
+      new Date(item.playedAt).toLocaleDateString()];
+    for (const text of labels) {
+      const span = document.createElement("span");
+      span.textContent = text;
+      meta.append(span);
+    }
+    card.append(title, meta);
+    if (progress != null) {
+      const bar = document.createElement("div");
+      bar.className = "bp-played-bar";
+      bar.setAttribute("role", "progressbar");
+      bar.setAttribute("aria-label", "Watched percent");
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      bar.setAttribute("aria-valuenow", String(Math.round(progress)));
+      const fill = document.createElement("span");
+      fill.style.width = progress.toFixed(1) + "%";
+      bar.append(fill);
+      card.append(bar);
+    }
+    const actions = document.createElement("div");
+    actions.className = "bp-played-actions";
+    const replay = (text, seconds, cssClass) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = cssClass;
+      button.textContent = text;
+      button.setAttribute("aria-label", text + ": " + item.title);
+      button.addEventListener("click", () => {
+        clearError("bp-played-error");
+        el("bp-magnet").value = item.source;
+        openMagnet(item.source, { fileIndex: item.fileIndex, resumeSeconds: seconds });
+      });
+      actions.append(button);
+    };
+    const seconds = replaySeconds(item);
+    if (seconds > 0) replay("Resume", seconds, "bp-played-resume");
+    replay("Replay", 0, "bp-played-replay");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "bp-played-remove";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label", "Remove from played: " + item.title);
+    remove.addEventListener("click", () => {
+      if (removePlayed(window.localStorage, item.sessionId, item.fileIndex)) renderPlayed();
+      else showError("bp-played-error", "Browser storage is unavailable. History could not be updated.");
+    });
+    actions.append(remove);
+    card.append(actions);
+    root.append(card);
+  }
+}
 
 async function request(path, opts = {}) {
   let response;
@@ -42,6 +131,7 @@ function showHome() {
   el("bp-home").hidden = false;
   el("bp-watch").hidden = true;
   document.title = "BytePlay — Your video, ready to stream";
+  renderPlayed();
 }
 function setOverlay(title, detail, visible = true) {
   el("bp-player-overlay").hidden = !visible;
@@ -139,13 +229,20 @@ function prepareVideo() {
   player.on("pause", () => {
     ui.browser = "paused";
     if (!ui.suppressEvents) {
+      rememberPlayback(true);
       ui.wantPlay = false;
       sendControl("pause");
     }
     setStage(ui.status);
   });
   player.on("waiting", () => { ui.browser = "buffering"; setStage(ui.status); });
-  player.on("playing", () => { ui.browser = "playing"; setStage(ui.status); });
+  player.on("playing", () => {
+    ui.browser = "playing";
+    ui.hasPlayed = true;
+    rememberPlayback(true);
+    setStage(ui.status);
+  });
+  player.on("ended", () => { rememberPlayback(true); });
   player.on("timeupdate", () => {
     if (!ui.status?.durationSeconds) return;
     const absolute = window.BytePlayTimeline.absoluteSeconds(ui.status.startSeconds || 0, player.currentTime() || 0);
@@ -153,6 +250,7 @@ function prepareVideo() {
     const field = el("bp-seek");
     if (document.activeElement !== field) field.value = String(Math.min(Number(field.max), absolute));
     putText("bp-time", formatTime(absolute) + " / " + formatTime(ui.status.durationSeconds));
+    rememberPlayback();
   });
   player.on("error", () => {
     ui.browser = "error";
@@ -219,6 +317,18 @@ async function pollStatus(token) {
     setStage(status);
     updateSeekRange(status);
     renderInfo();
+    if (status.playlistReady && ui.pendingResume > 0) {
+      // Resume by an explicit generation restart before exposing the old
+      // playlist. This preserves absolute positions without modifying VHS.
+      const resumeAt = Math.min(ui.pendingResume,
+        Number.isFinite(status.durationSeconds) ? Math.max(0, status.durationSeconds - 1) : ui.pendingResume);
+      ui.pendingResume = 0;
+      await seekTo(resumeAt);
+      if (ui.expectedGeneration !== status.generation) {
+        ui.poll = setTimeout(() => pollStatus(token), 300);
+        return;
+      }
+    }
     if (status.playlistReady) await attachReady(status);
   } catch (error) {
     if (token !== ui.token) return;
@@ -236,6 +346,7 @@ function stopPolling() {
   ui.poll = null;
 }
 async function releasePlayback() {
+  rememberPlayback(true);
   stopPolling();
   const id = ui.playback;
   ui.playback = null;
@@ -258,15 +369,18 @@ async function releasePlayback() {
   for (const url of ui.trackURLs) URL.revokeObjectURL(url);
   ui.trackURLs = [];
   ui.remoteTracks = [];
+  ui.hasPlayed = false;
   if (id) {
     await fetch("/api/v1/hls/" + encodeURIComponent(id), { method: "DELETE", credentials: "same-origin" }).catch(() => {});
   }
 }
-async function startFile(file) {
+async function startFile(file, resumeSeconds = 0) {
   await releasePlayback();
   ui.selected = file;
   ui.probe = null;
-  ui.lastKnownTime = 0;
+  ui.lastKnownTime = Number.isFinite(resumeSeconds) && resumeSeconds > 0 ? resumeSeconds : 0;
+  ui.pendingResume = ui.lastKnownTime;
+  ui.historySavedAt = 0;
   ui.browser = "waiting";
   ui.wantPlay = true;
   clearError("bp-watch-error");
@@ -312,7 +426,7 @@ function renderFileSelector() {
   select.value = String(ui.selected.index);
   document.querySelector(".bp-file-choice").hidden = ui.videos.length < 2;
 }
-async function openMagnet(value) {
+async function openMagnet(value, replay = null) {
   const magnet = String(value || "").trim();
   if (!magnet) return showError("bp-home-error", "Enter a magnet link or a 40-character infohash.");
   clearError("bp-home-error");
@@ -326,15 +440,17 @@ async function openMagnet(value) {
       body: JSON.stringify({ magnet })
     });
     ui.session = ticket.sessionId;
+    ui.source = magnet;
     const files = await request("/api/v1/torrent/" + encodeURIComponent(ui.session));
     ui.files = Array.isArray(files) ? files : [];
     ui.videos = videoFiles(ui.files);
     ui.captions = captionFiles(ui.files);
     if (!ui.videos.length) throw new Error("No supported video file was found in this torrent.");
-    ui.selected = ui.videos[0];
+    ui.selected = replay == null ? ui.videos[0] :
+      (ui.videos.find(file => file.index === replay.fileIndex) || ui.videos[0]);
     renderFileSelector();
     showWatch();
-    await startFile(ui.selected);
+    await startFile(ui.selected, replay?.fileIndex === ui.selected.index ? replay?.resumeSeconds || 0 : 0);
   } catch (error) {
     showError("bp-home-error", error.message);
   } finally {
@@ -521,6 +637,12 @@ drop.addEventListener("drop", (event) => {
   if (event.dataTransfer?.files?.[0]) uploadTorrent(event.dataTransfer.files[0]);
 });
 el("bp-settings").addEventListener("click", () => el("settings-btn").click());
+el("bp-played-clear").addEventListener("click", () => {
+  if (!window.confirm("Clear played videos from this browser?")) return;
+  if (clearPlayed(window.localStorage)) { clearError("bp-played-error"); renderPlayed(); }
+  else showError("bp-played-error", "Browser storage is unavailable. History could not be cleared.");
+});
+window.addEventListener("pagehide", () => rememberPlayback(true));
 el("bp-new").addEventListener("click", async () => {
   await releasePlayback();
   ui.session = null;
@@ -550,4 +672,5 @@ el("bp-search-form").addEventListener("submit", (event) => {
 });
 const magnetParameter = new URLSearchParams(location.search).get("torrent");
 if (magnetParameter) el("bp-magnet").value = magnetParameter;
+renderPlayed();
 loadProvider();

@@ -158,3 +158,39 @@ body.bp-theme { margin:0; background:#07151e; color:#e9f5f5; font-family:Inter,u
   .bp-spinner {animation:none;}
   .bp-shell * {transition:none!important;animation-duration:.01ms!important;}
 }
+
+
+/* Explicit settings palette: the retained modal's legacy theme variables can
+   otherwise make both selected/unselected buttons unreadable in Midnight Current. */
+#settings-model > div.p-6 { background:#0e2530 !important; color:#e9f5f5 !important; border-color:#33515d !important; }
+#settings-model .close-settings:is(button) { color:#dceff0 !important; }
+#settings-model .tab-btn { background:#203c47 !important; color:#e8f5f5 !important; border:1px solid #4d6c76 !important; }
+#settings-model .tab-btn.bg-primary { background:#2de0c0 !important; color:#06251e !important; border-color:#2de0c0 !important; }
+#settings-model .tab-btn:hover:not(.bg-primary),#settings-model button[id^="test-"]:hover { background:#31545f !important; color:#fff !important; }
+#settings-model button[id^="test-"] { background:#203c47 !important; color:#f2fbfb !important; border:1px solid #55737d !important; }
+#settings-model button.btn { background:#2de0c0 !important; color:#06251e !important; border:1px solid #2de0c0 !important; font-weight:750; }
+#settings-model button.btn:hover { background:#66f2d9 !important; color:#04261e !important; }
+#settings-model button:disabled { opacity:.55; cursor:not-allowed; }
+#settings-model :is(button,input,select):focus-visible { outline:3px solid #2de0c0 !important; outline-offset:3px; }
+#settings-model :is(input:not([type="checkbox"]),select) { color:#e9f5f5; border-color:#42616e; }
+#settings-model :is(input,select)::placeholder { color:#91aeb7; }
+
+.bp-played { padding:38px 0 70px; border-top:1px solid #24404a; }
+.bp-played-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.bp-played-heading .bp-section-heading { margin-bottom:20px; }
+.bp-played-heading .bp-section-heading p { color:#98b7be; font-size:13px; max-width:730px; margin:10px 0 0; line-height:1.6; }
+.bp-played-empty { background:#102934; border:1px dashed #375761; border-radius:12px; color:#b4cdd2; padding:27px; font-size:14px; }
+.bp-played-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.bp-played-item { min-width:0; padding:20px; border:1px solid #31505b; background:#102a34; border-radius:12px; display:flex; flex-direction:column; gap:11px; }
+.bp-played-item h3 { font-size:16px; font-weight:720; color:#e9f5f5; margin:0; line-height:1.4; overflow-wrap:anywhere; }
+.bp-played-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; color:#a5c4cb; font-size:12px; }
+.bp-played-bar { height:5px; background:#29444d; border-radius:9px; overflow:hidden; }
+.bp-played-bar span { display:block; height:100%; background:#2de0c0; }
+.bp-played-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:auto; }
+.bp-played-actions button { min-height:44px; padding:9px 15px; font-weight:700; font-size:13px; border:1px solid #45636e; border-radius:8px; background:#1b3b45; color:#e6f5f5; cursor:pointer; }
+.bp-played-actions .bp-played-resume { border-color:#2de0c0; background:#2de0c0; color:#072920; }
+.bp-played-actions button:hover { border-color:#67edda; }
+.bp-played-actions .bp-played-remove { margin-left:auto; color:#ffcbcf; border-color:#6b4752; }
+.bp-played-actions button:focus-visible,#bp-played-clear:focus-visible { outline:3px solid #2de0c0; outline-offset:3px; }
+@media(max-width:800px) { .bp-played-list { grid-template-columns:1fr; } }
+@media(max-width:540px) { .bp-played-heading { align-items:flex-start; flex-direction:column; gap:2px; } .bp-played-actions button { flex:1; } .bp-played-actions .bp-played-remove { margin-left:0; flex:0 0 auto; } }
