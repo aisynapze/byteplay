@@ -204,8 +204,14 @@ jobs:
           # Copy a synthetic short clip into a real 30-minute indexed MKV.
           ffmpeg -hide_banner -loglevel error -y \
             -stream_loop 56 -i "$RUNNER_TEMP/byteplay-browser-seed/clip.mp4" \
-            -t 1800 -map 0:v:0 -map 0:a:0 -c copy \
+            -f lavfi -i 'sine=frequency=880:sample_rate=48000' \
+            -t 1800 -map 0:v:0 -map 0:a:0 -map 1:a:0 \
+            -c:v copy -c:a:0 copy -c:a:1 aac -b:a:1 96k \
             "$RUNNER_TEMP/byteplay-browser-seed/long.mkv"
+          # Distinct absolute FFprobe audio stream indexes 1 and 2.
+          ffprobe -v error -select_streams a -show_entries stream=index \
+            -of csv=p=0 "$RUNNER_TEMP/byteplay-browser-seed/long.mkv" \
+            | grep -q '^2$'
           truncate -s 52428800 "$RUNNER_TEMP/byteplay-browser-seed/padding.bin"
       - name: Decode real torrent-backed HLS in the browser
         env:

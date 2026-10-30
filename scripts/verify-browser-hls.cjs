@@ -153,6 +153,46 @@ async function run() {
       "absolute playback timestamp did not reflect the 10-minute generation: "+absoluteLabel);
     await page.screenshot({path:path.join(OUT,"real-hls-long-mkv-far-seek-1440x900.png"),fullPage:true});
     console.log("BYTEPLAY_LONG_MKV_FAR_SEEK_PASS "+JSON.stringify({absoluteLabel}));
+    // A different audio track must restart the SAME playback with a fresh,
+    // immutable generation; selecting an existing track is not sufficient.
+    await page.locator("#bp-audio-wrap").waitFor({state:"visible",timeout:20000});
+    const tracks=await page.locator("#bp-audio option").evaluateAll(opts=>
+      opts.map(option=>Number(option.value)));
+    assert.deepEqual(tracks,[1,2],"fixture must expose two distinct audio indexes");
+    const audioChanged=page.waitForResponse(res=>
+      res.url().endsWith("/seek") && res.request().method()==="POST" &&
+      res.status()===202 && res.request().postDataJSON()?.audioStream===2,{timeout:30000});
+    const thirdManifest=page.waitForResponse(res=>
+      res.url().includes("/g/3/index.m3u8") && res.status()===200,{timeout:85000});
+    await page.locator("#bp-audio").selectOption("2");
+    await audioChanged;
+    await thirdManifest;
+    await page.evaluate(()=>{void window.videojs.getPlayer("bp-video").play().catch(()=>{});});
+    await page.waitForFunction(()=>{
+      const v=document.querySelector(".bp-player-surface video");
+      return v && v.readyState>=2 && v.currentTime>=1 && v.currentTime<15;
+    },null,{timeout:45000});
+    const reverseAccepted=page.waitForResponse(res=>
+      res.url().endsWith("/seek") && res.request().method()==="POST" &&
+      res.status()===202 && Math.abs(res.request().postDataJSON()?.seconds-120)<1,{timeout:30000});
+    const fourthManifest=page.waitForResponse(res=>
+      res.url().includes("/g/4/index.m3u8") && res.status()===200,{timeout:85000});
+    await page.locator("#bp-seek").evaluate(slider=>{
+      slider.value="120";
+      slider.dispatchEvent(new Event("change",{bubbles:true}));
+    });
+    await reverseAccepted;
+    await fourthManifest;
+    await page.evaluate(()=>{void window.videojs.getPlayer("bp-video").play().catch(()=>{});});
+    await page.waitForFunction(()=>{
+      const v=document.querySelector(".bp-player-surface video");
+      return v && v.readyState>=2 && v.currentTime>=1 && v.currentTime<15;
+    },null,{timeout:45000});
+    const reverseLabel=await page.locator("#bp-time").innerText();
+    assert.match(reverseLabel,/^0[12]:[0-5][0-9] \/ 30:/,
+      "backward seek did not restore absolute timeline");
+    console.log("BYTEPLAY_MULTI_AUDIO_REVERSE_SEEK_PASS "+JSON.stringify({tracks,reverseLabel}));
+    await page.screenshot({path:path.join(OUT,"real-hls-audio-and-reverse-seek-1440x900.png"),fullPage:true});
     console.log("BYTEPLAY_REAL_BROWSER_HLS_PASS "+JSON.stringify({
       decoded,playlist200:playlists.filter(x=>x.status===200).length,
       segments200:segments.filter(x=>x.status===200).length}));
