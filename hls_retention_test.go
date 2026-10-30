@@ -154,3 +154,18 @@ func TestHLSGenerationPathsAreDisjoint(t *testing.T) {
 		t.Fatalf("cleanup of generation 1 deleted generation 2: %q, %v", got, err)
 	}
 }
+
+func TestTorrentProjectionResetAfterSuccessfulCachePurge(t *testing.T) {
+	m := reservationFixture(t, 128, 32)
+	dir := filepath.Join(m.torrentRoot, "film.mkv.part")
+	m.cacheMu.Lock()
+	m.torrentFileEnds = map[string]int64{dir: 256}
+	m.cacheMu.Unlock()
+	if m.cacheWithinBudget() {
+		t.Fatal("projected torrent file should count toward quota")
+	}
+	m.resetTorrentProjections()
+	if !m.cacheWithinBudget() {
+		t.Fatal("successful purge did not free reserved torrent file projection")
+	}
+}

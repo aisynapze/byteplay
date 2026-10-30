@@ -1215,6 +1215,9 @@ func purgeCacheHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Every torrent writer was drained by the purge gate. Discard projected
+	// mmap file lengths only after all persistent data was removed.
+	activeHLS.resetTorrentProjections()
 
 	log.Printf("Cache purged, freed %s", formatSize(float64(freed)))
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{

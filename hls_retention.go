@@ -184,3 +184,9 @@ func (m *hlsManager) sweepLoop(ctx context.Context) {
 		}
 	}
 }
+
+func (m *hlsManager) resetTorrentProjections() {
+	m.cacheMu.Lock()
+	m.torrentFileEnds = nil
+	m.cacheMu.Unlock()
+}
