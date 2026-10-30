@@ -37,10 +37,12 @@ async function run() {
     // Chromium can need a user gesture even when a source is ready.
     const playerVideo=page.locator(".bp-player-surface video");
     await playerVideo.waitFor({state:"attached"});
-    await page.evaluate(async ()=>{
+    await page.evaluate(()=>{
       const video=document.querySelector(".bp-player-surface video");
       if (!video) throw new Error("Video.js tech missing");
-      await video.play();
+      // Do not await a play() promise before installing the bounded playback
+      // oracle: MSE may leave it pending indefinitely during a stall.
+      void video.play().catch(()=>{});
     });
     // Require decoded visual frames AND advancing media time. A 200 playlist
     // response, an HLS manifest, or a spinning player is not sufficient.
