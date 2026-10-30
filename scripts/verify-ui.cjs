@@ -19,7 +19,14 @@ async function run() {
   try {
     for (const viewport of [
       { width: 1920, height: 1080 },
+      { width: 1536, height: 864 },
+      { width: 1440, height: 900 },
+      { width: 1366, height: 768 },
+      { width: 1024, height: 768 },
+      { width: 834, height: 1194 },
+      { width: 768, height: 1024 },
       { width: 390, height: 844 },
+      { width: 375, height: 812 },
       { width: 320, height: 720 },
       { width: 844, height: 390 }
     ]) {
@@ -40,7 +47,7 @@ async function run() {
       assert.equal(await page.locator("#settings-model").isVisible(), true, "legacy settings dialog must remain functional");
       await page.locator(".close-settings").first().click({ position: { x: 5, y: 5 } });
       assert.equal(await page.locator("#settings-model").isVisible(), false);
-      if (viewport.width === 1920 || viewport.width === 390) {
+      if ([1920, 1024, 390, 375, 844].includes(viewport.width)) {
         await page.route("**/api/v1/torrent/add", route => route.fulfill({
           status: 200, contentType: "application/json", body: JSON.stringify({ sessionId: TORRENT })
         }));
