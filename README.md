@@ -13,6 +13,13 @@ This repository evolves the upstream BitPlay project while retaining the existin
 - Stream-copy compatible H.264/AAC files; convert incompatible audio to AAC; convert other supported video to H.264 using `libx264 -preset ultrafast`. Requires FFmpeg and FFprobe.
 - Video.js player with generation-based seeking, explicit pause/resume handling, captions, file information, original file download, and multiple-audio selection when present.
 - Keep existing settings for SOCKS5 proxy, Prowlarr, Jackett, and session/cache maintenance.
+- A **Played videos** section in the homepage that remembers actually played files locally in your browser, with Resume, Replay, Remove, and Clear history controls. The legacy Settings modal now has explicit readable tab/test/save label colors.
+
+## Played history (browser-only)
+
+When video playback actually begins, BytePlay records its filename, selected torrent file index, torrent magnet/infohash, approximate resume position, duration (if known), file size, and last-played time in that browser's `localStorage`. It updates the saved position during playback and on pause/page exit, retaining up to **30 recent videos**. These entries are not stored in BytePlay's server database, are not synced between browsers, and do not keep a torrent session or HLS playlist alive.
+
+From the homepage's **Played videos** section, choose **Resume** (restart HLS near the saved absolute time) or **Replay** (start at zero), remove an entry, or clear the complete list. Both replay paths reopen the saved torrent source and the chosen file through the existing authenticated API, and therefore still require reachable torrent peers and compatible media. Saved magnet links may include private tracker tokens; use **Clear history** on shared computers. Clearing browser/site data also removes the Played history. Browser storage may be disabled or unavailable; video streaming must still work without it. All user-supplied filenames are inserted with text-safe DOM APIs.
 
 Playback availability depends on actual torrent peers, codec support, local resources, and browser support. Downloading torrent data is distinct from creating HLS output; selected-file completion is not required before playback in the verified synthetic fixture. The app does not promise a video will play when the source is unsupported or unavailable.
 
