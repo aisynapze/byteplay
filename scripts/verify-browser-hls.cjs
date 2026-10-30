@@ -71,7 +71,18 @@ async function run() {
   }catch(err){
     const state=await page.evaluate(()=>{
       const v=document.querySelector(".bp-player-surface video");
-      return {stage:document.getElementById("bp-stage")?.textContent,
+      const player=window.videojs?.getPlayer?.("bp-video");
+      const src=player?.currentSource?.();
+      const Html5=window.videojs?.getTech?.("Html5");
+      const candidate={src:src?.src||"/test.m3u8",type:"application/x-mpegURL"};
+      const mediaSupported={
+        MediaSource:typeof window.MediaSource,
+        isSupported:window.MediaSource?.isTypeSupported?.('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),
+        VHS:typeof window.videojs?.Vhs,
+        hlsHtml5Play:Html5?.canPlaySource?.(candidate) || null,
+        source:src,version:window.videojs?.VERSION
+      };
+      return {mediaSupported,stage:document.getElementById("bp-stage")?.textContent,
         error:document.getElementById("bp-watch-error")?.textContent,
         overlay:document.getElementById("bp-overlay-title")?.textContent,
         video:v?{readyState:v.readyState,currentTime:v.currentTime,error:v.error?.message}:null};
