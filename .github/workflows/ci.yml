@@ -45,6 +45,10 @@ jobs:
         run: go test ./...
       - name: Race detector
         run: go test -race ./...
+      - name: Sparse classic backend (separate process initialization)
+        env:
+          TORRENT_STORAGE_DEFAULT_FILE_IO: classic
+        run: go test -race -count=1 -run '^TestTorrentStorageClassic' ./...
       - name: Install Node
         uses: actions/setup-node@v4
         with:
@@ -166,6 +170,7 @@ jobs:
     timeout-minutes: 25
     env:
       GOFLAGS: -mod=readonly
+      TORRENT_STORAGE_DEFAULT_FILE_IO: classic
       BYTEPLAY_E2E_URL: http://127.0.0.1:3347
       BYTEPLAY_SCREENSHOT_DIR: /tmp/byteplay-browser-media
     steps:

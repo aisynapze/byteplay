@@ -24,6 +24,9 @@ WORKDIR /app
 COPY --from=builder /app/main .
 COPY --from=builder /app/client ./client/
 COPY --from=frontend /ui/client/assets/output.css ./client/assets/output.css
+# Classic file I/O grows .part files only through requested piece extents.
+# The quota guard projects sparse file growth instead of mmap full-file allocation.
+ENV TORRENT_STORAGE_DEFAULT_FILE_IO=classic
 ENV BITPLAY_LISTEN_HOST=0.0.0.0
 EXPOSE 3347
 CMD ["/app/main"]
