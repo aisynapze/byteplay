@@ -130,3 +130,7 @@
 - Updated README operator steps to byteplay fork, `go run .`, safe listener/auth requirements and local Docker build; avoided implying an unapproved published image.
 - Enlarged responsive Chromium smoke viewport matrix: code committed, full new matrix rerun in progress; do not claim newly added viewport checks passed until that run finishes.
 - M7 and M8 remain partial, with cross-browser, seek timestamp, resources, eviction, accessibility and release gates not certified.
+
+## 2026-10-30 — Responsive viewport coverage
+
+- [CI #41009203394](https://github.com/aisynapze/byteplay/actions/runs/41009203394) SUCCESS all five jobs. Browser smoke home 11 spec sizes, watch 5 sizes; actual Google Chrome HLS decoding separately green. Preliminary screenshot audit of 375 phone, 834 tablet, 1024 watch and 844 landscape showed no evident clipping. More M7/M8 acceptance remains OPEN.
