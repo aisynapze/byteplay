@@ -45,6 +45,38 @@ async function run() {
       assert.match(await page.locator("#bp-home-error").innerText(), /Enter a magnet link/);
       await page.locator("#bp-settings").click();
       assert.equal(await page.locator("#settings-model").isVisible(), true, "legacy settings dialog must remain functional");
+      // The legacy modal must never inherit dark-on-dark / light-on-light
+      // text from the global theme. Check both active/inactive buttons and
+      // every save/test action using actual computed browser colors.
+      const colorContrast = await page.evaluate(() => {
+        const calculate = (color) => {
+          const parts = color.match(/[\\d.]+/g)?.slice(0, 3).map(Number) || [0, 0, 0];
+          const rgb = parts.map(x => {
+            const v = x / 255;
+            return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+          });
+          return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+        };
+        const selectors = [
+          "#settings-model .tab-btn.bg-primary",
+          "#settings-model .tab-btn:not(.bg-primary)",
+          "#settings-model #test-proxy",
+          "#settings-model #proxy-settings-form button[type=submit]"
+        ];
+        return selectors.map(selector => {
+          const e = document.querySelector(selector);
+          const style = getComputedStyle(e);
+          const a = calculate(style.color), b = calculate(style.backgroundColor);
+          return { selector, ratio: (Math.max(a,b) + 0.05) / (Math.min(a,b) + 0.05),
+            foreground: style.color, background: style.backgroundColor };
+        });
+      });
+      for (const contrast of colorContrast) {
+        assert.ok(contrast.ratio >= 4.5, "unreadable settings label: " + JSON.stringify(contrast));
+      }
+      if (viewport.width === 1920 || viewport.width === 390) {
+        await page.screenshot({ path: path.join(OUTPUT, "settings-" + viewport.width + "x" + viewport.height + ".png"), fullPage: true });
+      }
       await page.locator(".close-settings").first().click({ position: { x: 5, y: 5 } });
       assert.equal(await page.locator("#settings-model").isVisible(), false);
       if ([1920, 1024, 390, 375, 844].includes(viewport.width)) {
@@ -87,6 +119,27 @@ async function run() {
         await page.screenshot({ path: path.join(OUTPUT, "watch-" + viewport.width + "x" + viewport.height + ".png"), fullPage: true });
         await page.locator("#bp-new").click();
         await page.locator("#bp-home").waitFor({ state: "visible" });
+        if (viewport.width === 1920) {
+          // Browser-local history survives page reload and re-opens the right
+          // torrent/file using the existing authenticated add/HLS endpoints.
+          await page.evaluate(({key, source}) => localStorage.setItem(key, JSON.stringify([{
+            sessionId: source, fileIndex: 0, source: "magnet:?xt=urn:btih:" + source,
+            title: "Legal synthetic sample (H.264).mkv", position: 35,
+            duration: 60, size: 12345678, playedAt: Date.now()
+          }])), { key: "byteplay.played.v1", source: TORRENT });
+          await page.reload({ waitUntil: "networkidle" });
+          assert.equal(await page.locator(".bp-played-item").count(), 1);
+          assert.equal(await page.locator(".bp-played-item h3").innerText(), "Legal synthetic sample (H.264).mkv");
+          assert.equal(await page.locator(".bp-played-actions .bp-played-resume").count(), 1);
+          await page.getByRole("button", { name: "Replay: Legal synthetic sample (H.264).mkv" }).click();
+          await page.locator("#bp-watch").waitFor({ state: "visible" });
+          assert.equal(await page.locator("#bp-title").innerText(), "Legal synthetic sample (H.264).mkv");
+          await page.locator("#bp-new").click();
+          await page.locator("#bp-home").waitFor({ state: "visible" });
+          await page.getByRole("button", { name: "Remove from played: Legal synthetic sample (H.264).mkv" }).click();
+          assert.equal(await page.locator(".bp-played-item").count(), 0);
+          assert.equal(await page.locator("#bp-played-empty").isVisible(), true);
+        }
       }
       await page.close();
     }
