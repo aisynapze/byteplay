@@ -215,7 +215,7 @@ jobs:
         run: |
           set -e
           rm -f "$BYTEPLAY_BROWSER_STOP_FILE"
-          go test -tags=integration -run '^TestBrowserHLSFixtureHost -v . > "$RUNNER_TEMP/browser-fixture.log" 2>&1 &
+          go test -tags=integration -run '^TestBrowserHLSFixtureHost$' -count=1 -timeout=300s -v . > "$RUNNER_TEMP/browser-fixture.log" 2>&1 &
           fixture_pid=$!
           trap 'touch "$BYTEPLAY_BROWSER_STOP_FILE"; kill "$fixture_pid" 2>/dev/null || true; cat "$RUNNER_TEMP/browser-fixture.log"' EXIT
           ready=0
