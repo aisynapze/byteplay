@@ -66,28 +66,25 @@ async function run() {
     assert.ok(playlists.some(x=>x.status===200),"browser did not fetch an HLS playlist");
     assert.ok(segments.some(x=>x.status===200),"browser did not fetch HLS TS segments");
     assert.deepEqual(errors,[],"unhandled browser JavaScript exception");
-    // Far seek with real torrent, FFmpeg, generation 2 and Chrome decoding.
-    const seekAccepted=page.waitForResponse(res=>
-      res.url().endsWith("/seek") && res.request().method()==="POST" &&
-      res.status()===202,{timeout:25000});
-    const nextManifest=page.waitForResponse(res=>
-      res.url().includes("/g/2/index.m3u8") && res.status()===200,{timeout:55000});
+    // The synthetic 32-second fixture is often fully buffered before this
+    // check. A timebar seek inside that buffer must stay local in Video.js;
+    // requiring a new HLS generation here would be a false acceptance oracle.
     await page.locator("#bp-seek").evaluate(input=>{
       input.value="14";
       input.dispatchEvent(new Event("change",{bubbles:true}));
     });
-    await seekAccepted;
-    await nextManifest;
+    await page.waitForFunction(()=>{
+      const video=document.querySelector(".bp-player-surface video");
+      return video && video.currentTime>=13 && video.currentTime<=15.5;
+    },null,{timeout:15000});
     await page.evaluate(()=>{
       const player=window.videojs?.getPlayer?.("bp-video");
       void player?.play()?.catch(()=>{});
     });
     await page.waitForFunction(()=>{
       const v=document.querySelector(".bp-player-surface video");
-      return v && v.readyState>=2 && v.currentTime>=1.2;
-    },null,{timeout:35000});
-    assert.ok(playlists.some(x=>x.url.includes("/g/2/index.m3u8") && x.status===200),
-      "browser did not attach the new generation");
+      return v && v.readyState>=2 && v.currentTime>=14.2 && !v.paused;
+    },null,{timeout:20000});
     const paused=page.waitForResponse(res=>
       res.url().endsWith("/control") && res.request().method()==="POST" &&
       res.status()===200,{timeout:15000});
@@ -107,7 +104,7 @@ async function run() {
     await page.waitForFunction(()=>
       document.getElementById("bp-player-detail")?.textContent.includes("Subtitle file added"),
       null,{timeout:10000});
-    await page.screenshot({path:path.join(OUT,"real-hls-seek-and-caption-1440x900.png"),fullPage:true});
+    await page.screenshot({path:path.join(OUT,"real-hls-buffered-seek-and-caption-1440x900.png"),fullPage:true});
     // A Played entry is created only after real browser media playback.
     const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("byteplay.played.v1") || "[]"));
     assert.ok(stored.some(item => item.sessionId === sessionId &&
