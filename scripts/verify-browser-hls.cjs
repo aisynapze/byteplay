@@ -10,7 +10,7 @@ const OUT=process.env.BYTEPLAY_SCREENSHOT_DIR || "/tmp/byteplay-browser-media";
 fs.mkdirSync(OUT,{recursive:true});
 
 async function run() {
-  const browser=await chromium.launch({headless:true,args:["--autoplay-policy=no-user-gesture-required"]});
+  const browser=await chromium.launch({channel:"chrome",headless:true,args:["--autoplay-policy=no-user-gesture-required"]});
   const page=await browser.newPage({viewport:{width:1440,height:900}});
   const errors=[], segments=[], playlists=[];
   page.on("pageerror",err=>errors.push(err.message));
@@ -25,6 +25,8 @@ async function run() {
     const {sessionId}=await fixture.json();
     assert.match(sessionId,/^[0-9a-f]{40}$/);
     await page.goto(BASE,{waitUntil:"domcontentloaded"});
+    const supportsAVC=await page.evaluate(()=>Boolean(window.MediaSource?.isTypeSupported?.('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')));
+    assert.equal(supportsAVC,true,"Installed Chrome must support MSE H.264/AAC to run this decoding gate");
     await page.locator("#bp-magnet").fill("magnet:?xt=urn:btih:"+sessionId);
     await page.locator("#bp-open").click();
     await page.locator("#bp-watch").waitFor({state:"visible",timeout:20000});
