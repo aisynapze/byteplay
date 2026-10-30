@@ -74,3 +74,7 @@ export function validateCaptionFile(file) {
   if (file.size > MAX_CAPTION_BYTES) return "Subtitle files must be 5 MB or smaller.";
   return file.size > 0 ? null : "This subtitle file is empty.";
 }
+
+export function isCurrentHLSStatus(status, expectedGeneration) {
+  return Number.isInteger(status?.generation) && status.generation >= expectedGeneration;
+}
