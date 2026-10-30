@@ -114,6 +114,45 @@ async function run() {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator(".bp-played-item").waitFor({ state: "visible", timeout: 10000 });
     assert.match(await page.locator(".bp-played-item h3").first().innerText(), /clip\.mp4$/);
+    // Reopen a 30-minute synthetic MKV through the real torrent file picker.
+    // Unlike the short clip, 600 seconds is outside the browser's buffered
+    // range and must request an isolated HLS generation from the Go server.
+    await page.locator("#bp-magnet").fill("magnet:?xt=urn:btih:"+sessionId);
+    await page.locator("#bp-open").click();
+    await page.locator("#bp-watch").waitFor({state:"visible",timeout:30000});
+    await page.locator("#bp-video-select").selectOption({label:"long.mkv"});
+    await page.waitForFunction(()=>
+      document.getElementById("bp-title")?.textContent.includes("long.mkv"),
+      null,{timeout:30000});
+    await page.waitForFunction(()=>{
+      const slider=document.getElementById("bp-seek");
+      const stage=document.getElementById("bp-stage")?.textContent;
+      return Number(slider?.max)>=1750 &&
+        (stage==="Ready to play" || stage==="Playing" || stage==="Buffering");
+    },null,{timeout:100000});
+    const longSeekAccepted=page.waitForResponse(res=>
+      res.url().endsWith("/seek") && res.request().method()==="POST" &&
+      res.status()===202,{timeout:30000});
+    const longManifest=page.waitForResponse(res=>
+      res.url().includes("/g/2/index.m3u8") && res.status()===200,{timeout:85000});
+    await page.locator("#bp-seek").evaluate(slider=>{
+      slider.value="600";
+      slider.dispatchEvent(new Event("change",{bubbles:true}));
+    });
+    await longSeekAccepted;
+    await longManifest;
+    await page.evaluate(()=>{
+      void window.videojs?.getPlayer?.("bp-video")?.play()?.catch(()=>{});
+    });
+    await page.waitForFunction(()=>{
+      const v=document.querySelector(".bp-player-surface video");
+      return v && v.readyState>=2 && v.currentTime>=1.2;
+    },null,{timeout:65000});
+    const absoluteLabel=await page.locator("#bp-time").innerText();
+    assert.ok(/^(09|10):[0-5][0-9] \/ 30:/.test(absoluteLabel),
+      "absolute playback timestamp did not reflect the 10-minute generation: "+absoluteLabel);
+    await page.screenshot({path:path.join(OUT,"real-hls-long-mkv-far-seek-1440x900.png"),fullPage:true});
+    console.log("BYTEPLAY_LONG_MKV_FAR_SEEK_PASS "+JSON.stringify({absoluteLabel}));
     console.log("BYTEPLAY_REAL_BROWSER_HLS_PASS "+JSON.stringify({
       decoded,playlist200:playlists.filter(x=>x.status===200).length,
       segments200:segments.filter(x=>x.status===200).length}));

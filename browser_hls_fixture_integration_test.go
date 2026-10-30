@@ -110,7 +110,7 @@ func TestBrowserHLSFixtureHost(t *testing.T) {
 	// controls test lifetime through a marker file, never sleeps blindly.
 	marker := os.Getenv("BYTEPLAY_BROWSER_STOP_FILE")
 	t.Logf("BYTEPLAY_BROWSER_FIXTURE_READY id=%s", hash)
-	deadline := time.NewTimer(110 * time.Second)
+	deadline := time.NewTimer(240 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
