@@ -98,7 +98,7 @@ jobs:
       - name: Generate 60-second synthetic H264/AAC media and sparse padding
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg time
           mkdir -p "$RUNNER_TEMP/byteplay-seed"
           ffmpeg -hide_banner -loglevel error -y \
             -f lavfi -i 'testsrc2=size=640x360:rate=24' \
@@ -118,6 +118,28 @@ jobs:
         run: |
           go test -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion|CopySeekEffectiveStart)" -count=1 -timeout=120s -v .
           go test -race -tags=integration -run "Test(SeededMediaSourceRangeBeforeFullDownload|HLSFFmpegRouteFixtureMatrix|TorrentBackedHLSReadyBeforeWholeTorrentCompletion|CopySeekEffectiveStart)" -count=1 -timeout=120s -v .
+      - name: Measure copy vs x264 HLS cost on the same synthetic source
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/byteplay-profile/copy" "$RUNNER_TEMP/byteplay-profile/x264"
+          /usr/bin/time -f 'BYTEPLAY_COPY_PROFILE wall_s=%e user_cpu_s=%U system_cpu_s=%S max_rss_kib=%M' \
+            ffmpeg -hide_banner -loglevel error -nostdin -y \
+            -i "$RUNNER_TEMP/byteplay-seed/clip.mp4" -t 30 \
+            -map 0:v:0 -map 0:a:0 -c:v copy -c:a copy \
+            -f hls -hls_time 4 -hls_list_size 0 -hls_flags temp_file \
+            -hls_segment_filename "$RUNNER_TEMP/byteplay-profile/copy/segment-%06d.ts" \
+            "$RUNNER_TEMP/byteplay-profile/copy/index.m3u8"
+          /usr/bin/time -f 'BYTEPLAY_X264_PROFILE wall_s=%e user_cpu_s=%U system_cpu_s=%S max_rss_kib=%M' \
+            ffmpeg -hide_banner -loglevel error -nostdin -y \
+            -i "$RUNNER_TEMP/byteplay-seed/clip.mp4" -t 30 \
+            -map 0:v:0 -map 0:a:0 -c:v libx264 -preset ultrafast \
+            -threads 2 -pix_fmt yuv420p -c:a aac -b:a 128k \
+            -f hls -hls_time 4 -hls_list_size 0 -hls_flags temp_file \
+            -hls_segment_filename "$RUNNER_TEMP/byteplay-profile/x264/segment-%06d.ts" \
+            "$RUNNER_TEMP/byteplay-profile/x264/index.m3u8"
+          test -s "$RUNNER_TEMP/byteplay-profile/copy/index.m3u8"
+          test -s "$RUNNER_TEMP/byteplay-profile/x264/index.m3u8"
+          echo 'BYTEPLAY_PROFILE_FIXTURE_PASS: 30s local synthetic clip; runner-specific, not a sustained workload benchmark'
 
   browser-ui:
     name: Chromium home/watch responsive smoke

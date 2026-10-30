@@ -25,12 +25,19 @@ async function run() {
       { width: 1024, height: 768 },
       { width: 834, height: 1194 },
       { width: 768, height: 1024 },
+      // 1440x900 desktop at 200% browser zoom has ~720x450 CSS pixels.
+      // DPR 2 captures the corresponding physical-resolution evidence;
+      // this is a reflow proxy, not a complete manual zoom audit.
+      { width: 720, height: 450, scale: 2 },
       { width: 390, height: 844 },
       { width: 375, height: 812 },
       { width: 320, height: 720 },
       { width: 844, height: 390 }
     ]) {
-      const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
+      const page = await browser.newPage({
+        viewport: { width: viewport.width, height: viewport.height },
+        deviceScaleFactor: viewport.scale || 1
+      });
       page.on("pageerror", error => errors.push(viewport.width + ": " + error.message));
       await page.goto(BASE, { waitUntil: "networkidle" });
       await page.locator("#bp-hero-title").waitFor({ state: "visible" });
@@ -41,7 +48,9 @@ async function run() {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       assert.ok(overflow <= 2, viewport.width + " home horizontally overflows by " + overflow + "px");
       await page.screenshot({ path: path.join(OUTPUT, "home-" + viewport.width + "x" + viewport.height + ".png"), fullPage: true });
-      await page.locator("#bp-open").click();
+      // Keyboard-only form submission must use the same validation path.
+      await page.locator("#bp-magnet").focus();
+      await page.keyboard.press("Enter");
       assert.match(await page.locator("#bp-home-error").innerText(), /Enter a magnet link/);
       await page.locator("#bp-settings").click();
       assert.equal(await page.locator("#settings-model").isVisible(), true, "legacy settings dialog must remain functional");
@@ -83,7 +92,7 @@ async function run() {
       await page.keyboard.press("Escape");
       assert.equal(await page.locator("#settings-model").isVisible(), false,
         "Escape must dismiss Settings dialog");
-      if ([1920, 1024, 390, 375, 844].includes(viewport.width)) {
+      if ([1920, 1024, 720, 390, 375, 844].includes(viewport.width)) {
         await page.route("**/api/v1/torrent/add", route => route.fulfill({
           status: 200, contentType: "application/json", body: JSON.stringify({ sessionId: TORRENT })
         }));
