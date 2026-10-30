@@ -9,7 +9,8 @@ const ui = { session: null, files: [], videos: [], captions: [], selected: null,
   status: null, player: null, poll: null, token: 0, wantPlay: true,
   browser: "waiting", attachedGeneration: 0, expectedGeneration: 0, trackURLs: [], lastKnownTime: 0,
   suppressEvents: false, probe: null, provider: null, remoteTracks: [],
-  source: null, hasPlayed: false, historySavedAt: 0, pendingResume: 0 };
+  source: null, hasPlayed: false, historySavedAt: 0, pendingResume: 0,
+  initialPlaybackGeneration: 0 };
 
 
 function rememberPlayback(force = false) {
@@ -238,6 +239,18 @@ function prepareVideo() {
   });
   player.on("waiting", () => { ui.browser = "buffering"; setStage(ui.status); });
   player.on("playing", () => {
+    // Video.js treats a growing EVENT manifest as live. On a newly
+    // attached source it may start near the generated tail instead of
+    // its beginning. Rewind only that first attach, never normal seeks.
+    if (ui.initialPlaybackGeneration === ui.attachedGeneration) {
+      ui.initialPlaybackGeneration = 0;
+      if (player.currentTime() > 6) {
+        player.currentTime(0);
+        ui.browser = "buffering";
+        setStage(ui.status);
+        return;
+      }
+    }
     ui.browser = "playing";
     ui.hasPlayed = true;
     rememberPlayback(true);
@@ -277,9 +290,17 @@ async function attachReady(status) {
   if (ui.attachedGeneration === status.generation) return;
   prepareVideo();
   ui.attachedGeneration = status.generation;
+  ui.initialPlaybackGeneration = status.generation;
   ui.status = status;
+  ui.lastKnownTime = status.startSeconds || 0;
   ui.suppressEvents = true;
   ui.player.pause();
+  const attachedGeneration = status.generation;
+  ui.player.one("loadedmetadata", () => {
+    if (ui.attachedGeneration === attachedGeneration) {
+      ui.player.currentTime(0);
+    }
+  });
   ui.player.src({ src, type: "application/x-mpegURL" });
   ui.suppressEvents = false;
   setOverlay("Stream ready", "Press play to start watching.", false);
@@ -356,6 +377,7 @@ async function releasePlayback() {
   ui.playback = null;
   ui.status = null;
   ui.attachedGeneration = 0;
+  ui.initialPlaybackGeneration = 0;
   ui.expectedGeneration = 0;
   if (ui.player) {
     ui.suppressEvents = true;

@@ -146,7 +146,7 @@ async function run() {
     });
     await page.waitForFunction(()=>{
       const v=document.querySelector(".bp-player-surface video");
-      return v && v.readyState>=2 && v.currentTime>=1.2;
+      return v && v.readyState>=2 && v.currentTime>=1.2 && v.currentTime<15;
     },null,{timeout:65000});
     const absoluteLabel=await page.locator("#bp-time").innerText();
     assert.ok(/^(09|10):[0-5][0-9] \/ 30:/.test(absoluteLabel),

@@ -33,7 +33,7 @@ func TestBuildHLSFFmpegArgsRouteProfiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range [][]string{tc.video, tc.audio, {"-hls_flags", "temp_file"}, {"-hls_playlist_type", "event"}, {"-hls_time", "4"}} {
+			for _, want := range [][]string{tc.video, tc.audio, {"-readrate", "2"}, {"-hls_flags", "temp_file"}, {"-hls_playlist_type", "event"}, {"-hls_time", "4"}} {
 				if !containsAdjacent(args, want) {
 					t.Fatalf("argv missing %v: %v", want, args)
 				}

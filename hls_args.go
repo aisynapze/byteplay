@@ -29,7 +29,10 @@ func BuildHLSFFmpegArgs(route HLSRoute, opts HLSFFmpegOptions) ([]string, error)
 	if route.VideoIndex < 0 || route.VideoIndex > 512 || route.AudioIndex > 512 || route.AudioIndex < -1 {
 		return nil, errors.New("invalid FFprobe stream index")
 	}
-	args := []string{"-hide_banner", "-nostdin", "-loglevel", "error"}
+	// Read no faster than 2x playback time. Stream-copy can otherwise
+	// generate minutes of unwatched EVENT HLS and force Video.js to join
+	// far ahead of the requested generation position.
+	args := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-readrate", "2"}
 	if opts.StartSeconds > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(opts.StartSeconds, 'f', 3, 64))
 	}
