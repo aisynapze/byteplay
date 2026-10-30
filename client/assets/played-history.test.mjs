@@ -21,7 +21,7 @@ test("history round-trips across reads and deduplicates by torrent and file inde
   assert.equal(savePlayed(store, { ...base(), position: 45, playedAt: 1720000000100 }), true);
   assert.equal(readPlayed(store).length, 1);
   assert.equal(readPlayed(store)[0].position, 45);
-  assert.equal(savePlayed(store, base("b".repeat(40))), true);
+  assert.equal(savePlayed(store, { ...base("b".repeat(40)), playedAt: 1720000000200 }), true);
   assert.deepEqual(readPlayed(store).map(x => x.sessionId), ["b".repeat(40), "a".repeat(40)]);
 });
 test("bounded history preserves most recent thirty and supports removing just one file", () => {
