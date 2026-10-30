@@ -244,12 +244,15 @@ function prepareVideo() {
   });
   player.on("ended", () => { rememberPlayback(true); });
   player.on("timeupdate", () => {
-    if (!ui.status?.durationSeconds) return;
+    if (!ui.status) return;
     const absolute = window.BytePlayTimeline.absoluteSeconds(ui.status.startSeconds || 0, player.currentTime() || 0);
     ui.lastKnownTime = absolute;
-    const field = el("bp-seek");
-    if (document.activeElement !== field) field.value = String(Math.min(Number(field.max), absolute));
-    putText("bp-time", formatTime(absolute) + " / " + formatTime(ui.status.durationSeconds));
+    if (Number.isFinite(ui.status.durationSeconds) && ui.status.durationSeconds > 0) {
+      const field = el("bp-seek");
+      if (document.activeElement !== field) field.value = String(Math.min(Number(field.max), absolute));
+      putText("bp-time", formatTime(absolute) + " / " + formatTime(ui.status.durationSeconds));
+    }
+    // Keep last-watched time even if source metadata has no duration.
     rememberPlayback();
   });
   player.on("error", () => {
