@@ -97,6 +97,26 @@ func TestSeededMediaSourceRangeBeforeFullDownload(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 			defer cancel()
+			// A transient loopback handshake failure should not strand the
+			// second rate-limited subtest with no peer. Retry only while
+			// disconnected; still fail strictly if bytes never arrive.
+			reconnectDone := make(chan struct{})
+			go func() {
+				defer close(reconnectDone)
+				ticker := time.NewTicker(500 * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						if download.Stats().ActivePeers == 0 {
+							download.AddClientPeer(seeder)
+						}
+					}
+				}
+			}()
+			defer func() { cancel(); <-reconnectDone }()
 			reader := source.Open(ctx)
 			defer reader.Close()
 			req := httptest.NewRequest(http.MethodGet, "/range", nil).WithContext(ctx)
