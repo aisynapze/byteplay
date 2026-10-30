@@ -179,3 +179,21 @@ func TestIndexerMagnetRedirectAndCrossOriginDenial(t *testing.T) {
 		t.Fatalf("cross-origin redirect allowed: err=%v, called=%v", err, called)
 	}
 }
+
+func TestProxyTestErrorNeverExposesCredentials(t *testing.T) {
+	for _, proxyURL := range []string{
+		"socks5://alice:private-secret@127.0.0.1:1",
+		"http://alice:private-secret@127.0.0.1:1",
+	} {
+		body, _ := json.Marshal(map[string]interface{}{"proxyUrl": proxyURL})
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/proxy/test", bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		testProxyConnection(w, request)
+		if strings.Contains(w.Body.String(), "private-secret") || strings.Contains(w.Body.String(), "alice") {
+			t.Fatalf("proxy credentials leaked in error response: %s", w.Body.String())
+		}
+		if w.Code == 200 {
+			t.Fatal("unreachable or unsupported proxy unexpectedly succeeded")
+		}
+	}
+}

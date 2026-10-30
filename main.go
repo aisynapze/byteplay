@@ -1042,13 +1042,13 @@ func handleRemux(w http.ResponseWriter, r *http.Request, session *TorrentSession
 		}
 	}
 
-	select {
-	case remuxSlots <- struct{}{}:
-		defer func() { <-remuxSlots }()
-	default:
+	// Legacy remux and HLS share the bounded FFmpeg process budget.
+	releaseFFmpeg, admitted := reserveLegacyRemuxSlot(remuxSlots, activeHLS.processSlots)
+	if !admitted {
 		respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Too many active streams - try again shortly"})
 		return
 	}
+	defer releaseFFmpeg()
 
 	videoCodec := ""
 	session.ProbeMu.Lock()
@@ -1264,8 +1264,7 @@ func testProwlarrConnection(w http.ResponseWriter, r *http.Request) {
 
 	req, err := http.NewRequest("GET", testURL, nil)
 	if err != nil {
-		log.Printf("Error creating request: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to prepare proxy test request"})
 		return
 	}
 
@@ -1283,10 +1282,9 @@ func testProwlarrConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("Error reading response: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read Prowlarr response"})
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
+	if err != nil || len(responseBody) > 4096 {
+		respondWithJSON(w, http.StatusBadGateway, map[string]string{"error": "Proxy response unavailable or too large"})
 		return
 	}
 
@@ -1669,10 +1667,14 @@ func testProxyConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the proxy URL
+	// Proxy credentials are never reflected into diagnostics.
 	parsedProxyURL, err := url.Parse(proxyURL)
-	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid proxy URL: " + err.Error()})
+	if err != nil || parsedProxyURL == nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid SOCKS5 proxy configuration"})
+		return
+	}
+	if _, err := createProxyDialer(proxyURL); err != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid SOCKS5 proxy configuration"})
 		return
 	}
 
@@ -1697,8 +1699,8 @@ func testProxyConnection(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Error making request through proxy: %v", err)
-		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Proxy connection failed: " + err.Error()})
+		log.Println("Proxy connection test failed")
+		respondWithJSON(w, http.StatusBadGateway, map[string]string{"error": "Proxy connection test failed"})
 		return
 	}
 	defer resp.Body.Close()

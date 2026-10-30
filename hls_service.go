@@ -82,6 +82,7 @@ type hlsPlayback struct {
 	err           *hlsError
 	progress      MediaSourceProgress
 	peers         int
+	rate          downloadRateSampler
 }
 type hlsManager struct {
 	mu              sync.RWMutex
@@ -136,7 +137,7 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 		DurationSeconds: j.duration, StartSeconds: j.startSeconds, SegmentsReady: j.segments,
 		TorrentBytesCompleted: j.progress.TorrentBytesCompleted, TorrentBytesTotal: j.progress.TorrentBytesTotal,
 		SelectedFileBytesTotal: j.progress.FileBytesTotal,
-		DownloadBytesPerSecond: nil, Peers: j.peers, Error: j.err}
+		DownloadBytesPerSecond: j.rate.value, Peers: j.peers, Error: j.err}
 	if j.progress.FileBytesTotal > 0 {
 		n := j.progress.FileBytesCompleted
 		s.SelectedFileBytesCompleted = &n
@@ -167,6 +168,7 @@ func (j *hlsPlayback) observe() {
 		peers = j.session.Torrent.Stats().ActivePeers
 	}
 	j.mu.Lock()
+	j.rate.observe(p.TorrentBytesCompleted, time.Now())
 	j.progress = p
 	j.peers = peers
 	j.mu.Unlock()
