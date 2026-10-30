@@ -37,6 +37,9 @@ type hlsStatus struct {
 	Generation                 int       `json:"generation"`
 	PlaylistURL                *string   `json:"playlistUrl"`
 	PlaylistReady              bool      `json:"playlistReady"`
+	StartupCachePercent        int       `json:"startupCachePercent"`
+	StartupCacheReady          bool      `json:"startupCacheReady"`
+	StartupCacheBytesRequired  int64     `json:"startupCacheBytesRequired"`
 	StatusURL                  string    `json:"statusUrl"`
 	DurationSeconds            *float64  `json:"durationSeconds"`
 	StartSeconds               float64   `json:"startSeconds"`
@@ -79,6 +82,7 @@ type hlsPlayback struct {
 	duration      *float64
 	segments      int
 	playlistReady bool
+	startupCachePercent int
 	err           *hlsError
 	progress      MediaSourceProgress
 	peers         int
@@ -134,6 +138,9 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 	}
 	s := hlsStatus{PlaybackID: j.id, State: j.state, Mode: j.mode, Generation: generation,
 		PlaylistReady: j.playlistReady, StatusURL: "/api/v1/hls/" + j.id + "/status",
+		StartupCachePercent: j.startupCachePercent,
+		StartupCacheReady: startupCacheReached(j.progress.FileBytesTotal, j.progress.FileBytesCompleted, j.startupCachePercent),
+		StartupCacheBytesRequired: requiredStartupBytes(j.progress.FileBytesTotal, j.startupCachePercent),
 		DurationSeconds: j.duration, StartSeconds: j.startSeconds, SegmentsReady: j.segments,
 		TorrentBytesCompleted: j.progress.TorrentBytesCompleted, TorrentBytesTotal: j.progress.TorrentBytesTotal,
 		SelectedFileBytesTotal: j.progress.FileBytesTotal,
@@ -142,7 +149,7 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 		n := j.progress.FileBytesCompleted
 		s.SelectedFileBytesCompleted = &n
 	}
-	if j.playlistReady {
+	if j.playlistReady && s.StartupCacheReady {
 		url := "/api/v1/hls/" + j.id + "/g/" + strconv.Itoa(generation) + "/index.m3u8"
 		s.PlaylistURL = &url
 	}
@@ -234,6 +241,14 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 		writeHLSError(w, http.StatusUnsupportedMediaType, "unsupported_media", "Selected file is not a supported video container")
 		return
 	}
+	// Snapshot the startup threshold for this playback (not every poll).
+	startupPercent := startupCachePercent()
+	cacheTarget := requiredStartupBytes(source.file.Length(), startupPercent)
+	if cacheTarget > m.cacheLimit {
+		writeHLSError(w, http.StatusInsufficientStorage, "startup_cache_exceeds_budget",
+			"Selected-file startup cache target exceeds the configured cache budget")
+		return
+	}
 	m.mu.Lock()
 	if len(m.jobs) >= maxHLSPlaybacks {
 		m.mu.Unlock()
@@ -276,10 +291,16 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 		id: id, sessionID: req.SessionID, fileIndex: *req.FileIndex, selectedAudio: req.AudioStream,
 		dir: dir, session: session, source: source, ctx: ctx, cancel: cancel, stopOwner: stopOwner,
 		done: make(chan struct{}), state: "queued", generation: 1, lastDemand: time.Now(), progress: source.Progress(),
+		startupCachePercent: startupPercent,
 	}
 	m.jobs[id] = job
 	m.mu.Unlock()
 	release = false
+	// Prefetch only the selected-file prefix. FFprobe/FFmpeg keep their
+	// independent high-priority readers around the actual playhead.
+	if startupPercent > 0 && !startupCacheReached(job.progress.FileBytesTotal, job.progress.FileBytesCompleted, startupPercent) {
+		prefetchStartupPieces(source, startupPercent)
+	}
 	go m.run(job)
 	w.Header().Set("Cache-Control", "no-store")
 	respondWithJSON(w, http.StatusCreated, job.snapshot())
@@ -489,7 +510,7 @@ func (m *hlsManager) serveMedia(w http.ResponseWriter, r *http.Request, job *hls
 		return
 	}
 	job.mu.Lock()
-	ready := job.playlistReady
+	ready := job.playlistReady && startupCacheReached(job.progress.FileBytesTotal, job.progress.FileBytesCompleted, job.startupCachePercent)
 	job.mu.Unlock()
 	if !ready {
 		writeHLSError(w, http.StatusTooEarly, "preparing", "HLS media is not ready yet")

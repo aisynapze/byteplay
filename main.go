@@ -87,6 +87,8 @@ type Settings struct {
 	JackettApiKey        string `json:"jackettApiKey"`
 	SearchTimeoutSeconds int    `json:"searchTimeoutSeconds"`
 	SkipTLSVerify        bool   `json:"skipTlsVerify"`
+	// Nil means an existing configuration uses the default 9 percent.
+	StartupCachePercent *int `json:"startupCachePercent"`
 }
 
 func searchTimeout() time.Duration {
@@ -437,6 +439,7 @@ func init() {
 			ProwlarrHost:   "",
 			ProwlarrApiKey: "",
 			EnableJackett:  false,
+			StartupCachePercent: startupCachePercentPtr(defaultStartupCachePercent),
 			JackettHost:    "",
 			JackettApiKey:  "",
 		}
@@ -496,6 +499,7 @@ func main() {
 	http.HandleFunc("/api/v1/torrent/add", addTorrentHandler)
 	http.HandleFunc("/api/v1/torrent/", torrentHandler)
 	http.HandleFunc("/api/v1/settings", settingsHandler)
+	http.HandleFunc("/api/v1/settings/playback", playbackSettingsHandler)
 	http.HandleFunc("/api/v1/settings/proxy", saveProxySettingsHandler)
 	http.HandleFunc("/api/v1/settings/prowlarr", saveProwlarrSettingsHandler)
 	http.HandleFunc("/api/v1/settings/jackett", saveJackettSettingsHandler)

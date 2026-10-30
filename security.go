@@ -50,6 +50,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	settingsMutex.RLock()
 	snapshot := currentSettings
 	settingsMutex.RUnlock()
+	snapshot.StartupCachePercent = startupCachePercentPtr(configuredStartupCachePercent(snapshot))
 	urlWithoutCredentials, credentialsSet := redactedProxyURL(snapshot.ProxyURL)
 	out := struct {
 		Settings

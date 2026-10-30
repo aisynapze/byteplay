@@ -188,3 +188,14 @@ func TestHLSProbeResultIsAvailableForAudioTrackSelection(t *testing.T) {
 		t.Fatalf("invalid probe altered session cache: %+v", session.ProbeCache)
 	}
 }
+
+func TestStartupCacheGatesPlaylistUntilSelectedFileReady(t *testing.T) {
+	j:=&hlsPlayback{id:"0123456789abcdef0123456789abcdef",generation:1,
+		state:"ready",playlistReady:true,startupCachePercent:9,
+		progress:MediaSourceProgress{FileBytesTotal:1000,FileBytesCompleted:89}}
+	before:=j.snapshot()
+	if before.PlaylistURL!=nil || before.StartupCacheReady || before.StartupCacheBytesRequired!=90 || !before.PlaylistReady { t.Fatalf("early manifest: %+v",before) }
+	j.mu.Lock(); j.progress.FileBytesCompleted=90; j.mu.Unlock()
+	after:=j.snapshot()
+	if !after.StartupCacheReady || after.PlaylistURL==nil { t.Fatalf("ready manifest hidden: %+v",after) }
+}
