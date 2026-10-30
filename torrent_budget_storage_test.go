@@ -16,7 +16,6 @@ func TestTorrentStorageGuardsFarOffsetBeforeSparseFileExpansion(t *testing.T) {
 	root := t.TempDir()
 	m := newHLSManager(filepath.Join(root, "hls-cache"), "unused")
 	m.torrentRoot = filepath.Join(root, "torrent-data")
-	m.cacheLimit = 128
 	info := &metainfo.Info{PieceLength: 64, Name: "video.mp4", Length: 384, Pieces: make([]byte, 6*20)}
 	storage := newBudgetTorrentStorage(m.torrentRoot, m)
 	defer storage.Close()
@@ -25,6 +24,10 @@ func TestTorrentStorageGuardsFarOffsetBeforeSparseFileExpansion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer torrent.Close()
+	// The real file backend creates a persistent piece-completion database.
+	// Allocate 128 bytes above that baseline rather than counting its bytes
+	// as a failed video-piece reservation.
+	m.cacheLimit = dirSize(m.torrentRoot) + 128
 	first := torrent.Piece(info.Piece(0))
 	if n, err := first.WriteAt(bytes.Repeat([]byte("a"), 32), 0); err != nil || n != 32 {
 		t.Fatalf("first write: %d %v", n, err)
@@ -46,11 +49,7 @@ func TestTorrentWritesShareHeadroomWithHLSReservation(t *testing.T) {
 	root := t.TempDir()
 	m := newHLSManager(filepath.Join(root, "hls-cache"), "unused")
 	m.torrentRoot = filepath.Join(root, "torrent-data")
-	m.cacheLimit = 200
 	m.reserveBytes = 144
-	if !m.reserveCache(filepath.Join(m.root, "reserved")) {
-		t.Fatal("HLS reservation not admitted")
-	}
 	info := &metainfo.Info{PieceLength: 64, Name: "clip.mp4", Length: 256, Pieces: make([]byte, 4*20)}
 	storage := newBudgetTorrentStorage(m.torrentRoot, m)
 	defer storage.Close()
@@ -59,6 +58,10 @@ func TestTorrentWritesShareHeadroomWithHLSReservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer torrent.Close()
+	m.cacheLimit = dirSize(m.torrentRoot) + 200
+	if !m.reserveCache(filepath.Join(m.root, "reserved")) {
+		t.Fatal("HLS reservation not admitted")
+	}
 	piece := torrent.Piece(info.Piece(0))
 	if n, err := piece.WriteAt(make([]byte, 48), 0); err != nil || n != 48 {
 		t.Fatalf("48 bytes should fit with HLS reservation: %d %v", n, err)
