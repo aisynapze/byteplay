@@ -21,6 +21,7 @@ type budgetTorrentStorage struct {
 	upstream storage.ClientImplCloser
 	manager  *hlsManager
 	root     string
+	sparse   bool
 }
 
 func newBudgetTorrentStorage(root string, manager *hlsManager) storage.ClientImplCloser {
@@ -28,6 +29,7 @@ func newBudgetTorrentStorage(root string, manager *hlsManager) storage.ClientImp
 		upstream: storage.NewFile(root),
 		manager:  manager,
 		root:     root,
+		sparse:   os.Getenv("TORRENT_STORAGE_DEFAULT_FILE_IO") == "classic",
 	}
 }
 
@@ -50,6 +52,7 @@ func (s *budgetTorrentStorage) OpenTorrent(ctx context.Context, info *metainfo.I
 			piece:     piece,
 			manager:   s.manager,
 			root:      s.root,
+			sparse:    s.sparse,
 		}
 	}
 	return opened, nil
@@ -60,13 +63,14 @@ type budgetTorrentPiece struct {
 	piece   metainfo.Piece
 	manager *hlsManager
 	root    string
+	sparse  bool
 }
 
-// A conservative *apparent-file-length* quota (not a filesystem block quota).
-// Anacrolix's default mmap file backend TRUNCATES each .part file to its FULL
-// declared length on the first write, even if only one chunk was requested.
-// Reserve whole intersected-file lengths BEFORE the first write so one
-// torrent piece cannot silently expand the cache beyond the configured cap.
+// A conservative apparent-file-length quota, not a physical disk-block quota.
+// Default mmap TRUNCATES a part file to its FULL declared length on first
+// write, while the opt-in classic file backend extends only through each
+// requested write. Project the actual selected backend's growth *before*
+// every write to avoid granting more space than the shared HLS ledger allows.
 func (p *budgetTorrentPiece) WriteAt(data []byte, off int64) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
@@ -74,7 +78,7 @@ func (p *budgetTorrentPiece) WriteAt(data []byte, off int64) (int, error) {
 	if off < 0 || off > p.piece.Length() || int64(len(data)) > p.piece.Length()-off {
 		return 0, os.ErrInvalid
 	}
-	ends, err := torrentProjectedFileEnds(p.root, p.piece, off, int64(len(data)))
+	ends, err := torrentProjectedFileEndsWithMode(p.root, p.piece, off, int64(len(data)), p.sparse)
 	if err != nil {
 		return 0, err
 	}
@@ -143,6 +147,10 @@ func (p *budgetTorrentPiece) MarkNotComplete() error {
 }
 
 func torrentProjectedFileEnds(root string, piece metainfo.Piece, off, length int64) (map[string]int64, error) {
+	return torrentProjectedFileEndsWithMode(root, piece, off, length, false)
+}
+
+func torrentProjectedFileEndsWithMode(root string, piece metainfo.Piece, off, length int64, sparse bool) (map[string]int64, error) {
 	if off < 0 || length <= 0 || length > piece.Length()-off {
 		return nil, os.ErrInvalid
 	}
@@ -172,8 +180,11 @@ func torrentProjectedFileEnds(root string, piece metainfo.Piece, off, length int
 		if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			return nil, fmt.Errorf("torrent piece file path escapes storage root")
 		}
-		// mmap openForWrite truncates the entire file to file.Length.
-		projected[path] = max(projected[path], file.Length)
+		growth := file.Length // mmap's openForWrite truncates the full file
+		if sparse {
+			growth = intersectionEnd - fileStart // classic writes only this extent
+		}
+		projected[path] = max(projected[path], growth)
 	}
 	if len(projected) == 0 {
 		return nil, fmt.Errorf("torrent write range does not intersect file metadata")
