@@ -500,6 +500,11 @@ func main() {
 
 	checkFFmpeg()
 	activeHLS.ffmpeg = ffmpegPath
+	// No playback worker can exist before serving requests. Purge only
+	// verified, internally named HLS outputs from an interrupted prior run.
+	if err := activeHLS.recoverAbandonedCache(); err != nil {
+		log.Fatalf("HLS startup recovery: %v", err)
+	}
 
 	// Set up endpoint handlers
 	http.HandleFunc("/api/v1/torrent/add", addTorrentHandler)

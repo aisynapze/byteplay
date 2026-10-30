@@ -89,6 +89,9 @@ type hlsManager struct {
 	torrentRoot    string
 	cacheLimit     int64
 	cacheConfigErr error
+	cacheMu        sync.Mutex
+	reservations   map[string]int64
+	reserveBytes   int64
 	retentionTTL   time.Duration
 	pauseGrace     time.Duration
 	idleTimeout    time.Duration
@@ -102,6 +105,7 @@ func newHLSManager(root, ffmpeg string) *hlsManager {
 	limit, configErr := parseHLSCacheLimit(os.Getenv("BITPLAY_CACHE_MAX_BYTES"))
 	return &hlsManager{root: root, torrentRoot: "./torrent-data", cacheLimit: limit,
 		cacheConfigErr: configErr, retentionTTL: defaultHLSRetentionTTL,
+		reservations: make(map[string]int64), reserveBytes: maxHLSPlaybackBytes,
 		ffmpeg: ffmpeg, jobs: make(map[string]*hlsPlayback),
 		pauseGrace: 90 * time.Second, idleTimeout: 2 * time.Minute,
 		processSlots: make(chan struct{}, 2), videoSlots: make(chan struct{}, 1)}
@@ -253,6 +257,12 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 		writeHLSError(w, 500, "cache_unavailable", "HLS playback directory unavailable")
 		return
 	}
+	if !m.reserveCache(dir) {
+		_ = os.RemoveAll(filepath.Join(m.root, id))
+		m.mu.Unlock()
+		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "Insufficient reserved cache capacity for another HLS worker")
+		return
+	}
 	ctx, stopOwner := sessionRequestContext(session, context.Background())
 	ctx, cancel := context.WithCancel(ctx)
 	job := &hlsPlayback{
@@ -269,6 +279,7 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 }
 func (m *hlsManager) run(job *hlsPlayback) {
 	defer close(job.done)
+	defer m.releaseCache(job.dir)
 	defer releaseTorrentSession(job.session)
 	defer job.stopOwner()
 	defer job.cancel()

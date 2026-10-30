@@ -139,7 +139,17 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 		m.mu.Unlock()
 		return
 	}
+	// The old process has exited and no media response can retain its files
+	// while the exclusive manager lock is held. Remove its disjoint output
+	// before reserving space for a replacement generation.
+	if err := os.RemoveAll(current.dir); err != nil {
+		releaseTorrentSession(retained)
+		m.mu.Unlock()
+		writeHLSError(w, http.StatusInternalServerError, "cache_unavailable", "Cannot reclaim superseded HLS generation")
+		return
+	}
 	if !m.cacheWithinBudget() {
+		current.setError("failed", "cache_full", "Combined torrent/HLS cache budget reached")
 		releaseTorrentSession(retained)
 		m.mu.Unlock()
 		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "Combined torrent/HLS cache budget reached")
@@ -152,12 +162,22 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 		writeHLSError(w, http.StatusInternalServerError, "cache_unavailable", "Cannot create generation directory")
 		return
 	}
+	if !m.reserveCache(dir) {
+		_ = os.RemoveAll(dir)
+		current.setError("failed", "cache_full", "Insufficient reserved HLS cache capacity")
+		releaseTorrentSession(retained)
+		m.mu.Unlock()
+		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "Insufficient reserved HLS cache capacity")
+		return
+	}
 	owner, stopOwner := sessionRequestContext(retained, context.Background())
 	ctx, cancel := context.WithCancel(owner)
 	source, err := newMediaSource(retained.Torrent, current.fileIndex)
 	if err != nil {
 		cancel()
 		stopOwner()
+		m.releaseCache(dir)
+		_ = os.RemoveAll(dir)
 		releaseTorrentSession(retained)
 		m.mu.Unlock()
 		writeHLSError(w, http.StatusConflict, "torrent_unavailable", "Selected file no longer available")
@@ -173,9 +193,6 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 	// Everything needed for the replacement is now owned. Publish one
 	// generation pointer; old files remain isolated and inaccessible (410).
 	m.jobs[id] = next
-	// Old generation files are no longer addressable and have no active
-	// ServeFile readers while the manager lock is held.
-	go func(oldDir string) { _ = os.RemoveAll(oldDir) }(current.dir)
 	if paused {
 		m.schedulePauseLocked(next)
 	}
