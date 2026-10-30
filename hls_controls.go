@@ -141,10 +141,10 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 		m.mu.Unlock()
 		return
 	}
-	if dirSize(m.root) >= maxHLSCacheBytes {
+	if !m.cacheWithinBudget() {
 		releaseTorrentSession(retained)
 		m.mu.Unlock()
-		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "HLS cache capacity reached")
+		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "Combined torrent/HLS cache budget reached")
 		return
 	}
 	dir := filepath.Join(m.root, id, "g", strconv.Itoa(generation+1))
@@ -175,6 +175,9 @@ func (m *hlsManager) seek(w http.ResponseWriter, r *http.Request, id string) {
 	// Everything needed for the replacement is now owned. Publish one
 	// generation pointer; old files remain isolated and inaccessible (410).
 	m.jobs[id] = next
+	// Old generation files are no longer addressable and have no active
+	// ServeFile readers while the manager lock is held.
+	go func(oldDir string) { _ = os.RemoveAll(oldDir) }(current.dir)
 	if paused {
 		m.schedulePauseLocked(next)
 	}

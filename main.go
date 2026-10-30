@@ -559,6 +559,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go cleanupSessions(ctx)
+	go activeHLS.sweepLoop(ctx)
 	log.Printf("BytePlay listening at %s", listener.Addr())
 	if err := serveWithShutdown(ctx, server, listener, 15*time.Second); err != nil {
 		log.Printf("HTTP shutdown: %v", err)

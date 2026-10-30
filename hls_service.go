@@ -86,6 +86,10 @@ type hlsPlayback struct {
 type hlsManager struct {
 	mu           sync.RWMutex
 	root         string
+	torrentRoot  string
+	cacheLimit   int64
+	cacheConfigErr error
+	retentionTTL time.Duration
 	pauseGrace   time.Duration
 	idleTimeout  time.Duration
 	jobs         map[string]*hlsPlayback
@@ -95,12 +99,15 @@ type hlsManager struct {
 }
 
 func newHLSManager(root, ffmpeg string) *hlsManager {
-	return &hlsManager{root: root, ffmpeg: ffmpeg, jobs: make(map[string]*hlsPlayback),
+	limit, configErr := parseHLSCacheLimit(os.Getenv("BITPLAY_CACHE_MAX_BYTES"))
+	return &hlsManager{root: root, torrentRoot: "./torrent-data", cacheLimit: limit,
+		cacheConfigErr: configErr, retentionTTL: defaultHLSRetentionTTL,
+		ffmpeg: ffmpeg, jobs: make(map[string]*hlsPlayback),
 		pauseGrace: 90 * time.Second, idleTimeout: 2 * time.Minute,
 		processSlots: make(chan struct{}, 2), videoSlots: make(chan struct{}, 1)}
 }
 
-var activeHLS = newHLSManager("./hls-data", "")
+var activeHLS = newHLSManager("./hls-cache", "")
 
 func writeHLSError(w http.ResponseWriter, code int, key, message string) {
 	respondWithJSON(w, code, map[string]interface{}{"error": hlsError{Code: key, Message: message}})
@@ -137,6 +144,10 @@ func (j *hlsPlayback) snapshot() hlsStatus {
 }
 func (j *hlsPlayback) setError(state, code, msg string) {
 	j.mu.Lock()
+	if state == "cancelled" && j.state == "failed" {
+		j.mu.Unlock()
+		return
+	}
 	j.state = state
 	j.err = &hlsError{Code: code, Message: msg}
 	j.mu.Unlock()
@@ -158,6 +169,11 @@ func (m *hlsManager) get(id string) *hlsPlayback {
 	return m.jobs[id]
 }
 func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
+	m.reapInactive(time.Now())
+	if m.cacheConfigErr != nil {
+		writeHLSError(w, http.StatusServiceUnavailable, "cache_config_invalid", "Invalid BITPLAY_CACHE_MAX_BYTES setting")
+		return
+	}
 	if m.ffmpeg == "" || ffprobePath == "" {
 		writeHLSError(w, http.StatusServiceUnavailable, "ffmpeg_unavailable", "FFmpeg and FFprobe must be installed")
 		return
@@ -215,9 +231,9 @@ func (m *hlsManager) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Check capacity before reserving another output directory.
-	if dirSize(m.root) >= maxHLSCacheBytes {
+	if !m.cacheWithinBudget() {
 		m.mu.Unlock()
-		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "HLS cache capacity reached")
+		writeHLSError(w, http.StatusInsufficientStorage, "cache_full", "Combined torrent/HLS cache capacity reached")
 		return
 	}
 	id, err := newPlaybackID()
@@ -387,8 +403,8 @@ func (m *hlsManager) run(job *hlsPlayback) {
 			if m.idleExpired(job, time.Now()) {
 				job.cancel()
 			}
-			if dirSize(job.dir) > maxHLSPlaybackBytes || dirSize(m.root) > maxHLSCacheBytes {
-				job.setError("failed", "cache_full", "HLS cache quota reached")
+			if dirSize(job.dir) > maxHLSPlaybackBytes || !m.cacheWithinBudget() {
+				job.setError("failed", "cache_full", "Combined torrent/HLS cache budget reached")
 				job.cancel()
 			}
 		}
