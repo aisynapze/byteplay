@@ -28,3 +28,9 @@ Audited baseline `bb366d5102085477b7270d7982e60712cc23fb41`. Evidence is scoped 
 - [ ] BP-012 — PARTIAL: documented legacy endpoints preserved; exhaustive legacy HTTP contract characterization open.
 
 **No BP requirement is fully accepted until every applicable L3 test oracle is executed and recorded. No release/merge has been authorized.**
+
+## 2026-10-30 — Startup cache gate
+- [x] Configurable selected-video startup cache **core implementation CI-green in #150** (default 9%, 0 disables, 0..100 validated, Settings → Maintenance persisted/readback; prefix-only Torrent.DownloadPieces, HTTP HLS asset and frontend attach guards, unit/race and real Chrome+Firefox seeded-HLS decoding). This subfeature is accepted at tested scope.
+- [ ] M6 PTS/A/V certification remains OPEN. The source-to-rendered frame/audio pass/fail protocol is defined in `docs/evidence/PTS-AV-Certification-Plan.md`, but its timestamp-marker and calibrated audio measurements have NOT been executed.
+- [ ] BP-007, BP-008 and BP-009 remain PARTIAL for full L3 scope; a green startup-cache feature is not complete application/release approval.
+- Latest executed full quality gate: [#150](https://github.com/aisynapze/byteplay/actions/runs/41030741653) **5/5 GREEN** at `3872f336295d4d240f1008e87a4ac7bc9fba1f09`; subsequent documentation-only changes do not constitute a newly executed CI run.
